@@ -4,9 +4,65 @@
 
 CFA/Predict/ARB data management
 
-## Getting started
+## Overview and design principles
 
-TBD
+arbor is a lightweight tool for sharing data.
+It is a thin wrapper around storage backends such as Azure Blob, with some simple conventions that will help ARB stay organized.
+
+As an ARB analyst, I'm working in the context of some response (say, `2026-ebola`).
+There are a few different things I want to do:
+
+1. Pull a data file, like some mobility data, from the internet.
+   I will use this in many analyses.
+   It might never change.
+   I upload this file.
+2. Pull a data file, like daily case data, that changes on some basis, either *ad hoc* or regular.
+   I will use this in downstream analyses.
+3. Generate a result, like simulation trajectories.
+   It was expensive to make this, so I want to share it.
+   It will enable other analysts' downstream analyses.
+   I upload this file.
+   When I run another analysis later, I'll upload a revision.
+
+arbor abstracts over the *storage backend* where data is stored, and uses a simple hierarchy to make data discoverable and shareable:
+
+1. The *storage backend* is the place the data physically live, such as an Azure Blob storage container.
+2. A *grove* is a collection of related pieces of data.
+   We would use one grove per response.
+   A grove can be renamed without changing its assets.
+3. An *asset* is a data set or product.
+4. Each asset is made up of *revisions*, which are the actual payload of files associated with the asset.
+   A revision can be amended in place when its payload needs correction.
+
+arbor tries to keep things really, really simple:
+
+- The layout within the storage backend is transparent to a human.
+  You could look in the blob storage yourself and understand the layout, without arbor.
+- arbor keeps a little bit of metadata about when revisions are uploaded, amended, or destroyed, and when groves and assets are created or renamed.
+  Otherwise, whatever metadata you want to include as part of a revision, is up to you.
+  Including a `README.txt` or `metadata.json` in every revision is maybe wise, but arbor won't force you to do that.
+- No permissions or restrictions.
+  Whatever you could touch without arbor, you can touch with arbor.
+- If you know the grove ID (e.g., `"2026-ebola"`) and the asset ID (`"friction-surface"`), and your storage backend is configured, then that's all you need to know to get the relevant data.
+
+## A nominal walkthrough of functionality
+
+*Actual APIs are subject to change!*
+
+- Storage backends are configured via some uncommitted, user- and project-specific config.
+  arbor uses that config to connect to the backend and abstract over the particular storage operations.
+- See what groves there are in this storage backend: `arbor.list_groves()`
+- Pick your grove with `my_grove = arbor.grove("2026-ebola")`.
+- See what assets are in a grove: `my_grove.list_assets()`
+- Download the latest revision of the asset locally: `my_grove.asset("friction-surface").save("/path/to/local/dir/")`
+- Get that value, right into memory: `my_grove.asset("friction-surface").get()`
+- Upload a new revision of an asset: `my_grove.asset("daily-cases").upload("/path/to/local/dir/")`
+- Amend revision `5` in place: `my_grove.asset("daily-cases").amend("/path/to/local/dir/", rev=5)`
+- Destroy revision `5` (which you noticed just after uploading had an error): `my_grove.asset("daily-cases").burn("/path/to/local/dir/", rev=5)`
+- Rename an asset
+- Rename a grove
+
+See the `spec.md` for more details.
 
 ## Admins
 
