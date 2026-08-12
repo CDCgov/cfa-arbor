@@ -1,82 +1,91 @@
 # Arbor specification
 
-## 1. Purpose
+## 1. Purpose and scope
 
 Arbor is a small tool for sharing and versioning heterogeneous files during infectious disease responses.
 It stores numbered *revisions* of named *assets* within a *grove* on a configured *storage backend*.
 It is not a workflow engine, database, data catalog, or general-purpose cloud filesystem.
 
+Version 1 provides a local-filesystem storage backend, a Python object API, and a thin command-line interface (CLI) over that API.
+The public API includes a small abstract `Arbor` contract, implemented by `LocalArbor`; Azure Blob storage and a generalized low-level storage protocol are deferred.
+
 The words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are normative.
 
 ## 2. Model
 
-Arbor organizes data on a storage backend as groves, assets, and revisions.
-A storage backend is a configured storage namespace: either an Azure Blob container and blob-name prefix, or a local filesystem directory used for testing.
-It is not a named resource stored inside Arbor, and Arbor does not create or list storage backends.
-Arbor initializes the configured namespace with a top-level manifest but does not provision an Azure account or container.
-A storage backend contains groves and an append-only grove log.
-A grove contains assets and an append-only asset log.
-An asset contains revisions numbered from zero and an append-only revision log.
-A revision is a non-empty set of files, identified within the set by their relative paths.
+A configured local directory is the storage backend.
+It contains groves; a grove contains assets; and an asset contains numbered revisions.
+A revision is a non-empty set of regular files identified by their relative logical paths.
 
 ```text
-storage backend
-  grove log
-  grove
-    asset
-      revision 0 = {path: bytes, ...}
-      revision 1 = {path: bytes, ...}
-      ...
-      revision log
-    asset log
+storage backend/
+  manifest.json
+  log.jsonl
+  grove-id-1/
+    manifest.json
+    log.jsonl
+    asset-id-1/
+      manifest.json
+      log.jsonl
+      0/
+        {files...}
+      1/
+        {files...}
 ```
 
 Groves, assets, and revisions have no user metadata.
-Arbor does not interpret file contents or give special meaning to files such as `README.md` or `METADATA.json`.
-Uploaders MAY include such files in a revision.
+Arbor does not interpret file contents or give special meaning to files such as `README.md` or `metadata.json`.
+Users MAY include such files in a revision.
 
-### 2.1 Identity
+### 2.1 IDs and names
 
 Users supply grove and asset IDs.
-Each MUST:
+Each ID MUST:
 
 - contain 1 to 80 characters;
 - match `[A-Za-z0-9][A-Za-z0-9._-]*`; and
-- be unique among its siblings (groves within a storage backend and assets within a grove).
+- be unique among the current names of its siblings.
 
-Creating an existing grove MUST fail.
-A grove ID is its current name within the storage backend and MAY change through the rename operation.
-Renaming does not create a new grove or change its assets.
-An asset comes into existence when revision 0 and the corresponding asset-creation event are committed; an asset cannot be created empty.
-An asset ID is its current name within the grove and MAY change through the rename operation.
-Renaming does not create a new asset or change its revisions.
+The filesystem directory names are authoritative for current grove and asset IDs.
+Creating or renaming to a current sibling ID MUST fail with `Conflict`.
+Groves and assets MAY be renamed without changing their contents.
+After a rename, the old ID no longer resolves the object and the new ID does.
 
-The next revision of an asset MUST have number `n + 1`, where `n` is the greatest revision number ever committed for that asset, including destroyed revisions.
-Committed revision numbers MUST NOT be skipped or reused.
-A failed upload does not create a revision.
+A previously used grove or asset ID MAY be reused.
+When the reused ID appears anywhere in the relevant audit log, Arbor MUST emit a Python warning; the CLI MUST render that warning on standard error.
+Historical reuse is a warning, not an error.
 
-### 2.2 Versioning, amendment, and destruction
+An asset is created by uploading revision 0; empty assets do not exist.
+The next revision number is one greater than the maximum number found in either that asset's revision directories or its upload log events.
+Consequently, a number that reached its final revision directory or upload log, including a subsequently destroyed revision, MUST NOT be reused.
+A number used only in internal staging MAY be reused.
 
-To publish a new version of an asset, a user uploads the next revision; files are not implicitly carried forward from an earlier revision.
-The public API MUST also allow a committed, non-destroyed revision to be amended by replacing its complete set of paths and bytes without allocating a new revision number.
-An amendment MUST satisfy the same file and path validation rules as an upload and MUST append an amendment event to the asset's revision log.
-Multiple amendments of one revision are allowed, and each MUST append a distinct event.
-Amendment history records when amendments occurred but does not retain earlier payloads.
-An amendment does not change the revision number, the original upload time, or which revision number is latest.
+### 2.2 Upload, amendment, and destruction
 
-The public API MUST allow a committed revision to be destroyed.
-Destruction removes that revision's payload and appends a destruction event to its asset's revision log.
-It MUST NOT remove or alter the earlier upload event, and a destroyed revision's number MUST NOT be reused.
-A revision that has already been destroyed MUST NOT be destroyed again.
-A destroyed revision MUST NOT be amended.
+Uploading publishes a complete new revision.
+Files are not implicitly carried forward from an earlier revision.
 
-Unless explicitly requested otherwise, revision listings include only revisions whose payloads have not been destroyed.
-"Latest revision" means the non-destroyed revision with the greatest number, not a revision selected by a timestamp or by inspecting its files.
-If an asset has no non-destroyed revisions, asking for its latest revision MUST fail with revision not found; the asset itself continues to exist.
+The latest revision is the existing revision with the greatest number.
+Arbitrary historical correction is not part of version 1.
+
+Amending a revision completely replaces its paths and bytes without allocating a new revision number.
+It MUST satisfy the same file and path validation rules as an upload.
+Multiple amendments are allowed.
+The log records when each amendment occurred but Arbor does not retain earlier payloads.
+
+Destroying a revision removes its complete payload.
+Its upload and other earlier log events MUST remain, and its revision number MUST NOT be reused.
+After destruction, the greatest remaining revision becomes latest.
+If no revisions remain, the asset continues to exist but has no latest revision; download, amendment, and destruction MUST fail with `NotFound`.
+
+Revision listings return existing revisions in increasing numeric order.
+Destroyed revisions are absent from the listing.
+Downloading without a revision number resolves the latest revision before copying begins.
 
 ## 3. Files
 
-A revision contains at least one regular file.
+A revision is uploaded or amended from a source directory containing at least one regular file.
+The source directory itself is not part of the revision; its recursive contents define the logical paths.
 Its logical paths MUST:
 
 - use `/` separators and be relative and non-empty;
@@ -84,257 +93,226 @@ Its logical paths MUST:
 - be unique within the revision.
 
 Directories are implicit.
-Uploads MUST reject symbolic links, device files, sockets, and other special files.
+Uploads and amendments MUST reject symbolic links, device files, sockets, and other special files anywhere below the source directory.
+The source and download destination MUST be outside the configured storage-backend directory.
+Callers are responsible for not modifying a source directory while Arbor reads it; behavior under concurrent source modification is undefined in version 1.
 A round-trip upload and download MUST preserve every logical path and byte.
 
-## 4. Logs and time
+A download reproduces all paths beneath a new destination directory.
+It MUST fail with `Conflict` if the destination already exists.
+Version 1 has no overwrite option and no API for loading a revision directly into memory.
 
-Each asset has one append-only revision log.
-A committed revision has exactly one upload event recording its revision number and the time at which the upload committed:
+## 4. Audit logs and time
 
-```json
-{
-  "event": "uploaded",
-  "revision": 1,
-  "uploaded_at": "2026-08-10T18:30:00.123456Z"
-}
-```
+Logs record history but, except for revision-number allocation, do not determine current state.
+Current grove and asset names and existing revision payloads are determined from their directories.
+Log listing MUST use append order.
 
-Each revision amendment has exactly one event recording the revision number and the time at which the amendment committed:
+Each log is a UTF-8 JSON Lines file with exactly one JSON object per line.
+Existing lines MUST NOT be updated or deleted through Arbor.
+An incomplete trailing line left by abrupt termination is not an event and MAY be truncated during recovery; malformed complete lines MUST NOT be silently discarded.
+Every event time MUST be generated by Arbor, represent UTC, and use RFC 3339 with a `Z` suffix.
+Timestamps MAY be equal and do not establish a total order.
 
-```json
-{
-  "event": "amended",
-  "revision": 1,
-  "amended_at": "2026-08-10T18:45:00.123456Z"
-}
-```
-
-A destroyed revision has exactly one later destruction event:
+The arbor-level `log.jsonl` records creation and rename events for groves:
 
 ```json
-{
-  "event": "destroyed",
-  "revision": 1,
-  "destroyed_at": "2026-08-10T19:00:00.123456Z"
-}
+{"event":"created","grove_id":"2026-ebola","created_at":"2026-08-10T17:00:00.123456Z"}
+{"event":"renamed","old_grove_id":"2026-ebola","grove_id":"2026-filovirus","renamed_at":"2026-08-11T14:00:00.123456Z"}
 ```
 
-These are the only fields in revision-log events.
-In particular, the log does not record downloads, actors, attempts, failures, file details, or user metadata.
-
-Each grove has one append-only asset log.
-Creating an asset records its initial ID and creation time:
+Each grove's `log.jsonl` records analogous asset events:
 
 ```json
-{
-  "event": "created",
-  "asset_id": "weekly-cases",
-  "created_at": "2026-08-10T18:30:00.123456Z"
-}
+{"event":"created","asset_id":"weekly-cases","created_at":"2026-08-10T18:30:00.123456Z"}
+{"event":"renamed","old_asset_id":"weekly-cases","asset_id":"daily-cases","renamed_at":"2026-08-11T13:00:00.123456Z"}
 ```
 
-Renaming that asset records both names and the rename time:
+Each asset's `log.jsonl` records revision events:
 
 ```json
-{
-  "event": "renamed",
-  "old_asset_id": "weekly-cases",
-  "asset_id": "daily-cases",
-  "renamed_at": "2026-08-11T13:00:00.123456Z"
-}
+{"event":"uploaded","revision":1,"uploaded_at":"2026-08-10T18:30:00.123456Z"}
+{"event":"amended","revision":1,"amended_at":"2026-08-10T18:45:00.123456Z"}
+{"event":"destroyed","revision":1,"destroyed_at":"2026-08-10T19:00:00.123456Z"}
 ```
 
-These are the only fields in asset-log events.
-A rename MUST fail if the old ID does not identify a current asset or the new ID is already in use.
-After a rename commits, the old ID no longer resolves the asset and the new ID does.
-Replaying the asset log in append order MUST determine each asset's current ID.
+The displayed fields are the only fields permitted for each event type in schema version 1.
+The logs do not record downloads, actors, attempts, failures, file details, or user metadata.
+A malformed event or unsupported event type MUST fail with `Invalid` when Arbor reads the affected log.
 
-The storage backend has one append-only grove log.
-Creating and renaming groves use events analogous to those in the asset log:
+Because names are determined from directories, a process or power loss between a successful rename and its log append MAY leave the new name in use without a corresponding audit event.
+Likewise, an abrupt interruption MAY leave a completed filesystem mutation without its final audit event.
+This loss of audit completeness is an accepted version-1 limitation; it MUST NOT cause Arbor to infer a current name from log history.
 
-```json
-{
-  "event": "created",
-  "grove_id": "2026-ebola",
-  "created_at": "2026-08-10T17:00:00.123456Z"
-}
+## 5. Mutation and interruption
+
+Version 1 assumes that users do not run overlapping Arbor mutations against one backend.
+Arbor does not provide interprocess locking, mutation serialization, or read serialization.
+Behavior during concurrent mutation is undefined.
+A read concurrent with a mutation MAY observe either the state before or after that mutation and MAY fail if it occurs during a directory transition.
+
+Arbor MUST stage new payloads within the storage backend so that the final filesystem rename does not cross filesystems.
+Each mutation changes the intended filesystem state and then appends its audit event before returning success.
+If the backend remains writable, an ordinary exception at any point MUST restore the prior visible state, remove any incomplete trailing log data, and SHOULD remove its staging data.
+
+An *interrupted operation* includes both an ordinary exception and abrupt process or machine termination.
+After abrupt termination, temporary staging or backup data MAY remain and an audit event MAY be absent.
+Before a later operation accesses an affected resource, Arbor MUST perform bounded cleanup of the relevant staging or backup data sufficient to ensure that:
+
+- internal staging and backup paths are never returned by public listings;
+- an upload is either absent or visible as one complete revision, never a partial revision;
+- an interrupted amendment exposes either its complete old payload or its complete replacement, never a mixture; and
+- an interrupted destruction exposes either the complete revision or no revision.
+
+Recovery need not reproduce the audit event that was lost during abrupt termination.
+Retrying an interrupted operation is a new operation; version 1 provides no idempotency keys or exactly-once retry guarantee.
+These guarantees assume the underlying filesystem remains internally consistent.
+Version 1 does not promise recovery from filesystem corruption or `fsync`-level durability across power loss.
+
+## 6. Required interfaces
+
+The public Python API MUST provide an abstract `Arbor` class and objects representing the local backend, a grove, and an asset.
+`LocalArbor` MUST implement `Arbor`.
+It MUST provide these capabilities:
+
+- configure, initialize, or connect a backend and create, list, access, and rename groves;
+- create an asset by uploading revision 0, and list, access, and rename assets;
+- upload the next revision;
+- list revision numbers and a revision's file paths;
+- download a specified or latest revision;
+- amend or destroy a revision;
+- list the grove, asset, and revision audit logs; and
+- explicitly validate a complete backend or one grove.
+
+Grove and asset listings MUST always use lexicographic ID order.
+No alternate listing order is required.
+
+The CLI MUST expose the same version-1 capabilities and MUST be a thin wrapper around the Python object API.
+It MUST NOT contain separate storage, validation, or lifecycle logic.
+Human-readable output is sufficient; a stable machine-readable output format is not required in version 1.
+
+### 6.1 CLI configuration
+
+Every CLI invocation MUST select a TOML configuration file using the first applicable source:
+
+1. the global `--config PATH` option;
+2. the `ARBOR_CONFIG` environment variable; or
+3. the nearest `arbor.toml` found by searching from the current working directory upward through its ancestors to the filesystem root.
+
+An explicit or environment-provided relative configuration path is resolved against the current working directory.
+If no configuration is found, the CLI MUST fail with `Invalid`, report every `arbor.toml` path searched, and mention both `--config` and `ARBOR_CONFIG`.
+An explicit or environment-provided path that does not name a file MUST fail without falling through to the next source.
+
+The version-1 configuration has exactly this shape:
+
+```toml
+[backend]
+type = "local"
+path = ".arbor"
 ```
 
-```json
-{
-  "event": "renamed",
-  "old_grove_id": "2026-ebola",
-  "grove_id": "2026-filovirus",
-  "renamed_at": "2026-08-11T14:00:00.123456Z"
-}
-```
+The backend path MUST be a non-empty string and is resolved relative to the directory containing the configuration file.
+Unknown top-level keys, unknown `[backend]` keys, and unsupported backend types MUST fail with `Invalid`.
+The CLI MUST NOT combine multiple configuration files or create a missing `arbor.toml`.
 
-These are the only fields in grove-log events.
-A grove rename MUST fail if the old ID does not identify a current grove or the new ID is already in use.
-After a rename commits, the old ID no longer resolves the grove and the new ID does.
-Replaying the grove log in append order MUST determine each grove's current ID.
+The `init` command calls `init()` on the configured backend; every other storage command calls `connect()` before delegating to the object API.
+A `status` command MUST display the selected configuration file, backend type, and resolved backend path without connecting.
+Configuration discovery belongs only to the CLI and MUST NOT occur when importing Arbor or using its Python object API.
 
-All event times MUST be generated by Arbor, represent UTC, and use RFC 3339 with a `Z` suffix.
-Log listings MUST use append order.
-Timestamps do not establish a total order and MAY be equal.
+## 7. Local storage
 
-Existing log events MUST NOT be updated or deleted through the public API.
-The guarantee applies only to operations performed through Arbor.
-
-An upload is committed, and therefore visible for an existing asset, if and only if its upload event has been appended to the asset's revision log and its asset manifest exists.
-The upload event is the revision's commit marker.
-An amendment is committed when its amendment event is appended; the replacement payload and event MUST appear as one logical operation to public listings and downloads.
-Revision destruction is committed when its destruction event is appended; after that event, the revision MUST be unavailable for listing or download and its payload MUST be removed from storage.
-Asset creation is committed when its creation event is appended to the grove's asset log after revision 0 is committed; revision 0 and its asset MUST appear together in public listings.
-An asset rename is committed when its rename event is appended to the grove's asset log.
-A grove is committed when its creation event is appended to the storage backend's grove log.
-A grove rename is committed when its rename event is appended to the storage backend's grove log.
-
-## 5. Required operations
-
-The public Python API and command-line interface MUST both provide these capabilities:
-
-- create, list, and rename groves on a storage backend;
-- create an asset by uploading revision 0;
-- list assets in a grove;
-- upload the next revision of an asset;
-- list an asset's revisions in increasing numeric order;
-- list a revision's file paths without downloading it;
-- download a specified revision, or the latest revision resolved before the transfer begins;
-- amend a specified revision;
-- destroy a specified revision;
-- rename an asset;
-- list an asset's revision log in append order;
-- list the grove's asset log in append order; and
-- list the storage backend's grove log in append order.
-
-Grove and asset listings MUST use lexicographic ID order unless the caller requests another supported order.
-
-A download MUST retrieve every file in the selected revision and reproduce its paths below the destination.
-It MUST fail rather than overwrite a local path unless the caller explicitly permits local overwrite.
-
-An upload MUST validate and store the complete file set, then append its upload event last.
-Appending the event MUST commit the revision.
-An implementation MAY use a per-asset upload lock, but the initial implementation need not guarantee simultaneous uploads to one asset.
-
-Amendment MUST validate and stage the complete replacement file set before changing the visible revision.
-An incomplete amendment MUST leave the previous payload and revision log unchanged.
-Destruction MUST append its destruction event and remove all files in the selected revision as one logical operation.
-Once either step begins, Arbor MUST NOT return that revision from a new listing or download; interrupted destruction MAY require retry or cleanup to remove remaining payload files.
-Incomplete uploads and asset or grove renames MUST be invisible to listings and downloads.
-Retrying a failed upload MUST NOT alter a committed revision.
-Retrying a failed amendment MUST either preserve the previous payload or converge on one completely amended payload with exactly one new amendment event.
-Retrying a failed destruction MUST finish removal without adding a second event.
-Retrying a failed asset or grove rename MUST converge on either the state before the operation or the completely committed state.
-
-## 6. Storage
-
-Arbor MUST use one internal backend protocol with local-filesystem and Azure Blob implementations.
-This protocol is an implementation boundary, not a second user-facing API.
-The Python API and CLI MUST behave the same for both backends; storage backend configuration selects the implementation.
-Both interfaces MUST accept the same storage backend configuration format.
-The CLI SHOULD delegate to the Python API rather than duplicate backend logic.
-
-The local-filesystem implementation exists only for testing.
-The Azure Blob implementation is the operational backend.
-
-Azure Blob backend configuration MAY be committed to source control and MUST contain only non-secret values, such as the account or service endpoint, container, tenant, and optional blob-name prefix.
-Credentials and access tokens MUST NOT be stored in storage backend configuration.
-Authentication MUST use the user's external Azure credential context, such as an existing `az login` session.
-
-Backends SHOULD expose a human-inspectable layout equivalent to:
+The local layout SHOULD be human-inspectable and equivalent to:
 
 ```text
-<backend directory or blob prefix>/
+<backend>/
   manifest.json
-  <grove-id>/
-    manifest.json
-    assets/
-      <asset-id>/
-        manifest.json
-        revisions/
-          <revision>/
-            <logical paths>
+  grove-log.jsonl
+  groves/
+    <grove-id>/
+      manifest.json
+      asset-log.jsonl
+      assets/
+        <asset-id>/
+          manifest.json
+          revision-log.jsonl
+          revisions/
+            <revision>/
+              <logical paths>
+  .arbor-tmp/
 ```
 
-The top-level, grove, and asset `manifest.json` files are system-controlled.
-The storage backend's top-level manifest contains its grove log and MUST have exactly this logical content when first created:
+The three `manifest.json` files are system-controlled and have exactly this logical content in schema version 1:
 
 ```json
-{"schema_version": 1, "grove_log": []}
+{"schema_version": 1}
 ```
 
-The grove manifest contains its asset log, and each asset manifest contains its revision log.
-When first created, before any events are appended, their logical content is respectively:
+Arbor MUST reject unsupported schema versions with `Invalid`.
+Manifests and logs MUST NOT contain backend paths or other machine-specific configuration.
+Internal paths such as `.arbor-tmp` MUST NOT appear in public listings.
 
-```json
-{"schema_version": 1, "asset_log": []}
-```
+Importing `arbor` and constructing `LocalArbor(path)` MUST NOT access or validate any backend.
+Construction records configuration and produces a disconnected backend object even when the configured path does not exist.
+Calling `backend.init()` MUST require a new or empty directory, create the top-level manifest, empty grove log, `groves` directory, and internal staging directory, mark the instance connected, and return that instance.
+Calling `backend.connect()` MUST check only that the top-level directory and manifest exist, that the manifest has the required shape, and that its schema version is supported; it then marks and returns the connected instance.
+Calling `connect()` on a connected instance MUST return that instance without additional validation.
+Calling `init()` on a connected instance MUST fail with `Conflict`.
+Other operations on a disconnected backend MUST fail with `Conflict`.
+The top-level manifest is sufficient evidence that the path is an Arbor backend; connecting MUST NOT recursively inspect groves, assets, revisions, or logs.
 
-```json
-{"schema_version": 1, "revision_log": []}
-```
+Validation is explicit and potentially expensive.
+`backend.validate()` MUST recursively validate the complete backend, while `grove.validate()` MUST validate the selected grove and its assets.
+Validation MUST check the expected directory structure, manifests, logs, numeric revision directories, and stored revision file types within its scope.
+Normal operations MAY validate the particular manifest, log, or directory they access, but MUST NOT trigger unrelated recursive validation.
 
-The versions apply independently to the storage backend, grove, and asset storage schemas.
-Arbor MUST reject a manifest whose schema version it does not support.
-These manifests are not user metadata and MUST NOT contain configuration or fields other than their schema version and specified log in schema version 1.
+The configured local directory is authoritative and is the source of truth.
+Users can inspect it without Arbor, although modifying Arbor-controlled files directly may make the backend invalid.
 
-Implementations MUST ignore stored revision files that have no corresponding log entry.
-Storage belonging to an uncommitted revision MAY be replaced or removed during retry or cleanup.
+## 8. Errors
 
-Existing log events MUST NOT be replaced through the public API.
-Active committed revision files MAY be replaced only by amending that revision, and MAY be removed only by destroying that revision.
-Provider URLs, credentials, container names, ETags, and signed URLs MUST NOT appear in IDs, logical paths, manifests, or log events.
+The public API has three domain-error categories:
 
-The configured backend is authoritative.
-The state of the configured storage backend is the source of truth.
+- `Invalid`: malformed IDs, paths, manifests, logs, or payloads;
+- `NotFound`: a missing grove, asset, or revision; and
+- `Conflict`: an existing current ID or download destination, or an operation forbidden by current state.
 
-## 7. Errors and integrity
+These errors SHOULD identify the relevant grove, asset, revision, or path without exposing unrelated filesystem details.
+Unexpected operating-system failures MAY propagate with their original exception type.
 
-The implementation MUST distinguish at least:
-
-- grove not found;
-- asset or revision not found;
-- resource already exists or operation already in progress;
-- invalid ID or file path;
-- destination conflict during download;
-- invalid storage backend, grove, or asset manifest or log;
-- storage-provider failure.
-
-Errors SHOULD identify the relevant storage backend, grove, asset, revision, or logical path without exposing storage secrets.
-
-## 8. Minimum acceptance criteria
+## 9. Minimum acceptance criteria
 
 Automated tests MUST show that Arbor can:
 
-1. Configure a temporary local-filesystem storage backend, write its version-1 top-level manifest and grove log, create two groves in it, and reject a duplicate grove ID.
-2. Upload single-file revision 0 and multi-file revision 1 of one asset.
-3. Preserve all paths and bytes when downloading either revision.
-4. Return revision 1 as latest and list revisions as `[0, 1]`.
-5. Reject invalid paths, duplicate paths, symbolic links, and empty uploads or amendments.
-6. Hide an interrupted upload and reuse its uncommitted revision number.
-7. Append exactly one minimal upload event per committed revision and no event for a failed upload or download.
-8. Amend a revision, retain its upload and amendment events, expose only its replacement payload, preserve its revision number, and reject amendment of a destroyed revision.
-9. Destroy a revision, retain all of its earlier events plus its destruction event, exclude it from listing and download, and allocate the next number after the greatest revision ever committed.
-10. Rename an asset, preserve its revisions and revision log, reject a colliding name, and retain creation and rename events in the grove's asset log.
-11. Rename a grove, preserve its assets and logs, reject a colliding name, and retain creation and rename events in the storage backend's grove log.
-12. Reconstruct listings and current grove and asset names from only the configured storage backend.
-13. Perform grove creation and rename, upload, amendment, destruction, asset rename, listing, and download through both the Python API and CLI against a local-filesystem storage backend.
-14. Write version-1 top-level, grove, and asset manifests and reject unsupported storage backend, grove, and asset schema versions.
+1. Initialize a temporary backend, create two groves, list them lexicographically, and reject a duplicate current ID.
+2. Rename a grove and an asset without changing their contents; record their creation and rename events; and warn when a historical ID is reused.
+3. Upload single-file revision 0 and multi-file revision 1, preserving every path and byte on download.
+4. List revision paths without downloading and reject an existing download destination.
+5. Amend the latest revision by complete replacement while retaining its number and earlier log events.
+6. Destroy a revision, omit it from listing and download, and never reuse its number.
+7. Reject amendment or destruction of a non-latest revision.
+8. Reject invalid IDs and paths, symbolic links, and empty uploads or amendments.
+9. Construct a disconnected backend without filesystem access, initialize new storage through `init()`, and connect to existing storage through a shallow, idempotent `connect()`.
+10. Detect nested corruption through explicit backend and grove validation and through an operation that accesses the corrupted resource.
+11. Fault-inject ordinary exceptions during every mutation and preserve the prior visible state.
+12. Simulate process interruption at staging and rename boundaries, then recover to a complete old or new state without mixed or partial payloads.
+13. Exercise all required capabilities through both the Python API and CLI.
+14. Reject unsupported manifest versions and malformed JSONL events.
+15. Select CLI configuration according to the required precedence, discover the nearest ancestor configuration, resolve backend paths relative to it, and explain a failed search.
 
-The local-filesystem implementation MUST support the complete automated test suite.
-Azure-specific integration tests MAY require an explicitly configured test container and authenticated Azure session.
+## 10. Non-goals and deferred work
 
-## 9. Non-goals
+Version 1 does not provide:
 
-The initial implementation does not provide:
-
+- Azure Blob or other remote storage backends;
+- a generalized low-level protocol for remote storage operations;
+- defined behavior for overlapping operations within one backend;
+- exactly-once retries or complete audit logging across abrupt termination;
+- recovery from filesystem corruption or `fsync`-level durability;
+- consistent upload or amendment while another process changes the source directory;
+- direct in-memory loading of revisions;
+- arbitrary historical amendment or destruction;
+- alternate listing orders or download overwrite;
 - tagging, user metadata, schemas, or queries over file contents;
-- aliases, branches, merges, or relationships among assets;
-- workflow execution or data transformation;
-- download or access auditing;
-- authentication or fine-grained authorization;
-- deduplication, retention policies, or deletion of groves or whole assets;
-- a web interface; or
-- direct exposure of a provider's filesystem or object-store API.
+- workflow execution, relationships among assets, or data transformation;
+- authentication, authorization, download auditing, or a web interface; or
+- deduplication, retention policies, or deletion of whole groves or assets.
