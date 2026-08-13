@@ -2,13 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
-import tomllib
-from pathlib import Path
 
-from .core import Arbor, ArborError, Invalid
-from .local import LocalArbor
+from .core import Arbor, ArborError
 
 
 def run(argv: list[str] | None = None) -> int:
@@ -87,73 +83,10 @@ def run(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _configure_arbor(config: dict, path: Path) -> Arbor:
-    if not (isinstance(config["backend"], dict) and "backend" in config):
-        raise Invalid(f"configuration must contain a [backend] table: {path}")
-
-    backend = config["backend"]
-    if "type" not in backend:
-        raise Invalid(f"missing backend.type: {path}")
-    elif backend["type"] == "local":
-        if not ("path" in backend and isinstance(backend["path"], str)):
-            raise Invalid(f"backend.path must be a non-empty string: {path}")
-        root = (path.parent / backend["path"]).resolve()
-        return LocalArbor(root)
-    else:
-        raise Invalid(f"unsupported backend type {backend['type']!r}: {path}")
-
-
-def _resolve_config_path(path: str | Path | None) -> Path:
-    """
-    Search for arbor.toml
-
-    Args:
-        path: user-supplied path
-
-    Return: resolved path
-    """
-    # use explicitly supplied path if possible
-    if path is not None:
-        resolved_path = Path(path).expanduser().resolve()
-        if not resolved_path.is_file():
-            raise Invalid(f"configuration file not found: {path}")
-        return resolved_path
-
-    # if not, use path supplied in the env var
-    if path := os.environ.get("ARBOR_CONFIG"):
-        resolved_path = Path(path).expanduser().resolve()
-        if not resolved_path.is_file():
-            raise Invalid(f"ARBOR_CONFIG file not found: {path}")
-        return resolved_path
-
-    # if not, search through the directory structure
-    start = Path.cwd().resolve()
-    searched = []
-    for directory in (start, *start.parents):
-        candidate = directory / "arbor.toml"
-        searched.append(str(candidate))
-        if candidate.is_file():
-            return candidate
-    raise Invalid(
-        "could not find arbor.toml; searched: "
-        + ", ".join(searched)
-        + "; use --config or ARBOR_CONFIG"
-    )
-
-
-def _load_config(path: Path) -> dict:
-    try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
-        raise Invalid(f"invalid configuration: {path}") from error
-
-
 def _dispatch(args: argparse.Namespace) -> None:
     """Execute logic, based on the parsed args"""
     # find and load the config; get the backend set up
-    path = _resolve_config_path(args.config)
-    config = _load_config(path)
-    my_arbor = _configure_arbor(config, path)
+    my_arbor = Arbor.from_config(args.config)
 
     if args.command == "status":
         print(my_arbor)

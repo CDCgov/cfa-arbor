@@ -191,11 +191,12 @@ The CLI MUST expose the same version-1 capabilities and MUST be a thin wrapper a
 It MUST NOT contain separate storage, validation, or lifecycle logic.
 Human-readable output is sufficient; a stable machine-readable output format is not required in version 1.
 
-### 6.1 CLI configuration
+### 6.1 Configuration
 
-Every CLI invocation MUST select a TOML configuration file using the first applicable source:
+`Arbor.from_config(PATH)` and every CLI invocation MUST select a TOML configuration file using the first applicable source.
+For the CLI, `PATH` is supplied by `--config`:
 
-1. the global `--config PATH` option;
+1. the explicit `PATH` or CLI `--config PATH` option;
 2. the `ARBOR_CONFIG` environment variable; or
 3. the nearest `arbor.toml` found by searching from the current working directory upward through its ancestors to the filesystem root.
 
@@ -213,7 +214,7 @@ path = ".arbor"
 
 The backend path MUST be a non-empty string and is resolved relative to the directory containing the configuration file.
 Unknown top-level keys, unknown `[backend]` keys, and unsupported backend types MUST fail with `Invalid`.
-The CLI MUST NOT combine multiple configuration files or create a missing `arbor.toml`.
+The Python API and CLI MUST NOT combine multiple configuration files or create a missing `arbor.toml`.
 
 The `init` command calls `init()` on the configured backend; every other storage command calls `connect()` before delegating to the object API.
 A `status` command MUST display the selected configuration file, backend type, and resolved backend path without connecting.

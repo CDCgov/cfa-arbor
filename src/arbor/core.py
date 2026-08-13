@@ -32,6 +32,12 @@ class Conflict(ArborError):
 class Arbor(ABC):
     schema_version = 1
 
+    @classmethod
+    def from_config(cls, path: str | Path | None = None) -> Arbor:
+        from .config import from_config
+
+        return from_config(path)
+
     @property
     @abstractmethod
     def connected(self) -> bool:

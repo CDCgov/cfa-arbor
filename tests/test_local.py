@@ -175,3 +175,13 @@ def test_cli_lifecycle(tmp_path, capsys, monkeypatch):
     assert run(["create-grove", "g"]) == 0
     assert run(["list-groves"]) == 0
     assert capsys.readouterr().out == "g\n"
+
+
+def test_arbor_from_config(tmp_path):
+    config = tmp_path / "arbor.toml"
+    config.write_text('[backend]\ntype = "local"\npath = "script-arbor"\n')
+
+    configured = arbor.Arbor.from_config(config)
+
+    assert isinstance(configured, arbor.LocalArbor)
+    assert configured.path == (tmp_path / "script-arbor").resolve()

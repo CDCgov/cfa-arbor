@@ -94,9 +94,9 @@ Perform the same operations through a small command-line interface that delegate
 
 See [`docs/spec.md`](docs/spec.md) for more details.
 
-## Command-line configuration
+## Configuration
 
-The CLI reads a project-local configuration such as:
+You can use a per-project `arbor.toml` like:
 
 ```toml
 [backend]
@@ -105,8 +105,10 @@ path = ".arbor"
 ```
 
 The path is resolved relative to `arbor.toml`.
-The CLI selects its configuration from `--config PATH`, then `ARBOR_CONFIG`, then the nearest `arbor.toml` found by searching upward from the working directory.
-It reports the paths searched if none is found and never creates a missing configuration file.
+arbor can be called with an explicit config path.
+If `Arbor.from_config()` is called with a config path, it searches for the environmental variable `ARBOR_CONFIG` and then the nearest `arbor.toml`.
+
+## Command-line configuration
 
 ```console
 $ arbor status
@@ -116,7 +118,17 @@ $ arbor upload 2026-ebola daily-cases ./data
 $ arbor revisions 2026-ebola daily-cases
 ```
 
-Configuration discovery is CLI-only; the Python API always receives backend configuration explicitly.
+Scripts can use the same configuration discovery as the CLI:
+
+```python
+import arbor
+
+my_arbor = arbor.Arbor.from_config()
+my_arbor.connect()
+```
+
+`Arbor.from_config(PATH)` accepts an explicit configuration path.
+Without one, it uses `ARBOR_CONFIG` and then searches upward from the current working directory for `arbor.toml`.
 
 ## Future versions
 
