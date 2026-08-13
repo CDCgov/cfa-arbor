@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "ARB data management"
 readme = "README.md"
 authors = [{ name = "Scott Olesen", email = "ulp7@cdc.gov" }]
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = []
 
 [project.scripts]
