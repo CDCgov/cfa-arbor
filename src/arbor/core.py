@@ -6,7 +6,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Self
 
-MANIFEST = {"schema_version": 1}
 ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}\Z")
 
 type GroveID = str
@@ -31,6 +30,8 @@ class Conflict(ArborError):
 
 
 class Arbor(ABC):
+    schema_version = 1
+
     @property
     @abstractmethod
     def connected(self) -> bool:
@@ -149,6 +150,8 @@ class Arbor(ABC):
 
 
 class Grove:
+    schema_version = 1
+
     def __init__(self, arbor: Arbor, grove_id: GroveID):
         self.arbor = arbor
         self.grove_id = _validated_id(grove_id)
@@ -173,6 +176,8 @@ class Grove:
 
 
 class Asset:
+    schema_version = 1
+
     def __init__(self, arbor: Arbor, grove_id: GroveID, asset_id: AssetID):
         self.arbor = arbor
         self.grove_id = grove_id

@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,10 @@ def source(tmp_path):
     (root / "books").mkdir()
     (root / "books" / "moby.txt").write_text("Call me Ishmael")
     return root
+
+
+def test_arbor_string(raw_arbor):
+    assert re.match(r'LocalArbor\(".+"\)', repr(raw_arbor))
 
 
 def test_new_arbor_is_unconnected(raw_arbor):

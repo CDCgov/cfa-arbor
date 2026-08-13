@@ -87,58 +87,23 @@ def run(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _dispatch(args: argparse.Namespace) -> None:
-    """Execute logic, based on the parsed args"""
-    # find and load the config; get the backend set up
-    config_path = _resolve_config_path(args.config)
-    config = _load_config(config_path)
-    my_arbor = _configure_arbor(config=config, path=config_path)
+def _configure_arbor(config: dict, path: Path) -> Arbor:
+    if not (isinstance(config["backend"], dict) and "backend" in config):
+        raise Invalid(f"configuration must contain a [backend] table: {path}")
 
-    if args.command == "status":
-        print(f"config: {config_path}")
-        print(config)
-
-    elif args.command == "init":
-        my_arbor.init()
-    elif args.command == "validate-arbor":
-        my_arbor.validate()
+    backend = config["backend"]
+    if "type" not in backend:
+        raise Invalid(f"missing backend.type: {path}")
+    elif backend["type"] == "local":
+        if not ("path" in backend and isinstance(backend["path"], str)):
+            raise Invalid(f"backend.path must be a non-empty string: {path}")
+        root = (path.parent / backend["path"]).resolve()
+        return LocalArbor(root)
     else:
-        my_arbor.connect()
-        if args.command == "list-groves":
-            _print_lines(my_arbor.list_grove_ids())
-        elif args.command == "arbor-log":
-            _print_lines(my_arbor.log())
-        elif args.command == "create-grove":
-            my_arbor.create_grove(args.grove)
-        elif args.command == "rename-grove":
-            my_arbor.grove(args.grove).rename(args.new_id)
-        else:
-            grove = my_arbor.grove(args.grove)
-            if args.command == "list-assets":
-                _print_lines(grove.list_asset_ids())
-            elif args.command == "grove-log":
-                _print_lines(grove.log())
-            elif args.command == "rename-asset":
-                grove.asset(args.asset).rename(args.new_id)
-            else:
-                asset = grove.asset(args.asset)
-                if args.command == "upload":
-                    print(asset.upload(args.source))
-                elif args.command == "list-revs":
-                    _print_lines(asset.list_rev_ids())
-                elif args.command == "asset-log":
-                    _print_lines(asset.log())
-                elif args.command == "paths":
-                    _print_lines(asset.paths(args.rev))
-                elif args.command == "save":
-                    asset.save(args.dest, args.rev)
-                elif args.command == "amend":
-                    print(asset.amend(args.source, args.rev))
-                elif args.command == "burn":
-                    print(asset.burn(args.rev))
+        raise Invalid(f"unsupported backend type {backend['type']!r}: {path}")
 
 
-def _resolve_config_path(path: str | None) -> Path:
+def _resolve_config_path(path: str | Path | None) -> Path:
     """
     Search for arbor.toml
 
@@ -183,20 +148,54 @@ def _load_config(path: Path) -> dict:
         raise Invalid(f"invalid configuration: {path}") from error
 
 
-def _configure_arbor(config: dict, path: Path) -> Arbor:
-    if not (isinstance(config["backend"], dict) and "backend" in config):
-        raise Invalid(f"configuration must contain a [backend] table: {path}")
+def _dispatch(args: argparse.Namespace) -> None:
+    """Execute logic, based on the parsed args"""
+    # find and load the config; get the backend set up
+    path = _resolve_config_path(args.config)
+    config = _load_config(path)
+    my_arbor = _configure_arbor(config, path)
 
-    backend = config["backend"]
-    if "type" not in backend:
-        raise Invalid(f"missing backend.type: {path}")
-    elif backend["type"] == "local":
-        if not ("path" in backend and isinstance(backend["path"], str)):
-            raise Invalid(f"backend.path must be a non-empty string: {path}")
-        root = (path.parent / backend["path"]).resolve()
-        return LocalArbor(root)
+    if args.command == "status":
+        print(my_arbor)
+
+    elif args.command == "init":
+        my_arbor.init()
+    elif args.command == "validate-arbor":
+        my_arbor.validate()
     else:
-        raise Invalid(f"unsupported backend type {backend['type']!r}: {path}")
+        my_arbor.connect()
+        if args.command == "list-groves":
+            _print_lines(my_arbor.list_grove_ids())
+        elif args.command == "arbor-log":
+            _print_lines(my_arbor.log())
+        elif args.command == "create-grove":
+            my_arbor.create_grove(args.grove)
+        elif args.command == "rename-grove":
+            my_arbor.grove(args.grove).rename(args.new_id)
+        else:
+            grove = my_arbor.grove(args.grove)
+            if args.command == "list-assets":
+                _print_lines(grove.list_asset_ids())
+            elif args.command == "grove-log":
+                _print_lines(grove.log())
+            elif args.command == "rename-asset":
+                grove.asset(args.asset).rename(args.new_id)
+            else:
+                asset = grove.asset(args.asset)
+                if args.command == "upload":
+                    print(asset.upload(args.source))
+                elif args.command == "list-revs":
+                    _print_lines(asset.list_rev_ids())
+                elif args.command == "asset-log":
+                    _print_lines(asset.log())
+                elif args.command == "paths":
+                    _print_lines(asset.paths(args.rev))
+                elif args.command == "save":
+                    asset.save(args.dest, args.rev)
+                elif args.command == "amend":
+                    print(asset.amend(args.source, args.rev))
+                elif args.command == "burn":
+                    print(asset.burn(args.rev))
 
 
 def _print_lines(values: list) -> None:

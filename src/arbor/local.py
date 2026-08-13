@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, Self
 
 from .core import (
-    MANIFEST,
     Arbor,
     Asset,
     AssetID,
@@ -45,13 +44,14 @@ def _write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value) + "\n", encoding="utf-8")
 
 
-def _check_manifest(path: Path) -> None:
+def _check_manifest(path: Path, schema_version: int) -> None:
     """Ensure the manifest is what we expect"""
     try:
         value = _read_json(path)
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise Invalid(f"invalid manifest: {path}") from error
-    if value != MANIFEST:
+
+    if not ("schema_version" in value and value["schema_version"] == schema_version):
         raise Invalid(f"unsupported or malformed manifest: {path}")
 
 
@@ -75,6 +75,9 @@ class LocalArbor(Arbor):
         self._manifest_path = self.path / "manifest.json"
         self._log_path = self.path / "log.jsonl"
 
+    def __repr__(self) -> str:
+        return f'LocalArbor("{self.path!s}")'
+
     @property
     def connected(self) -> bool:
         return self._connected
@@ -89,7 +92,7 @@ class LocalArbor(Arbor):
         elif not self.path.is_dir():
             raise Invalid(f"local arbor path is not a directory: {self.path}")
         else:
-            _check_manifest(self._manifest_path)
+            _check_manifest(self._manifest_path, self.schema_version)
             self._connected = True
             return self
 
@@ -103,7 +106,7 @@ class LocalArbor(Arbor):
         # try to set up; if we fail, delete everything we did
         self.path.mkdir(parents=True, exist_ok=True)
         try:
-            _write_json(self._manifest_path, MANIFEST)
+            self._write_manifest(self._manifest_path)
             self._log_path.touch()
         except BaseException:
             for path in (self._log_path, self._manifest_path):
@@ -115,6 +118,9 @@ class LocalArbor(Arbor):
 
         self._connected = True
         return self
+
+    def _write_manifest(self, path: Path):
+        _write_json(path, {"schema_version": self.schema_version})
 
     def list_grove_ids(self) -> list[GroveID]:
         self._require_connected()
@@ -132,7 +138,7 @@ class LocalArbor(Arbor):
         try:
             # create grove, grove manifest, grove log
             grove_path.mkdir()
-            _write_json(self._grove_manifest_path(grove_id), MANIFEST)
+            self._write_manifest(self._grove_manifest_path(grove_id))
             self._grove_log_path(grove_id).touch()
             # log grove creation in arbor's log
             _append_jsonl(
@@ -177,7 +183,7 @@ class LocalArbor(Arbor):
         grove_path = self._grove_path(grove_id)
         if not grove_path.is_dir():
             raise NotFound(f"grove not found: {grove_id}")
-        _check_manifest(self._grove_manifest_path(grove_id))
+        _check_manifest(self._grove_manifest_path(grove_id), self.schema_version)
 
     def _grove_manifest_path(self, grove_id: GroveID) -> Path:
         return self.path / grove_id / "manifest.json"
@@ -214,7 +220,9 @@ class LocalArbor(Arbor):
         path = self._asset_path(grove_id, asset_id)
         if not path.is_dir():
             raise NotFound(f"asset not found: {grove_id}/{asset_id}")
-        _check_manifest(self._asset_manifest_path(grove_id, asset_id))
+        _check_manifest(
+            self._asset_manifest_path(grove_id, asset_id), self.schema_version
+        )
 
     def list_rev_ids(self, grove_id: GroveID, asset_id: AssetID) -> list[RevisionID]:
         self._require_asset(grove_id, asset_id)
@@ -267,7 +275,7 @@ class LocalArbor(Arbor):
 
         try:
             asset_path.mkdir()
-            _write_json(self._asset_manifest_path(grove_id, asset_id), MANIFEST)
+            self._write_manifest(self._asset_manifest_path(grove_id, asset_id))
             self._asset_log_path(grove_id, asset_id).touch()
 
             _append_jsonl(
@@ -445,7 +453,7 @@ class LocalArbor(Arbor):
 
     def validate(self) -> None:
         self._require_connected()
-        _check_manifest(self._manifest_path)
+        _check_manifest(self._manifest_path, self.schema_version)
         self.log()
         for grove_id in self.list_grove_ids():
             self.validate_grove(grove_id)
