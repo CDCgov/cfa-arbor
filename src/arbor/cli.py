@@ -13,12 +13,12 @@ def run(argv: list[str] | None = None) -> int:
     c = p.add_subparsers(dest="command", required=True)
 
     c.add_parser("status", help="show resolved configuration without connecting")
-    c.add_parser("init", help="initialize the configured backend")
+    c.add_parser("init", help="initialize the configured arbor")
 
-    c.add_parser("list-groves", help="list groves in the backend")
-    c.add_parser("log-groves")
+    c.add_parser("list-groves", help="list groves in the arbor")
+    c.add_parser("arbor-log")
 
-    c.add_parser("validate-backend", help="validate all groves")
+    c.add_parser("validate-arbor", help="validate all groves")
 
     cc = c.add_parser("create-grove")
     cc.add_argument("grove")
@@ -30,8 +30,12 @@ def run(argv: list[str] | None = None) -> int:
     cc = c.add_parser("list-assets")
     cc.add_argument("grove")
 
-    cc = c.add_parser("log-assets")
+    cc = c.add_parser("grove-log")
     cc.add_argument("grove")
+
+    cc = c.add_parser("create-asset")
+    cc.add_argument("grove")
+    cc.add_argument("asset")
 
     cc = c.add_parser("rename-asset")
     cc.add_argument("grove")
@@ -43,11 +47,11 @@ def run(argv: list[str] | None = None) -> int:
     cc.add_argument("asset")
     cc.add_argument("source")
 
-    cc = c.add_parser("revs")
+    cc = c.add_parser("list-revs")
     cc.add_argument("grove")
     cc.add_argument("asset")
 
-    cc = c.add_parser("log-revs")
+    cc = c.add_parser("asset-log")
     cc.add_argument("grove")
     cc.add_argument("asset")
 
@@ -109,6 +113,8 @@ def _dispatch(args: argparse.Namespace) -> None:
             grove = my_arbor.grove(args.grove)
             if args.command == "list-assets":
                 _print_lines(grove.list_asset_ids())
+            elif args.command == "create-asset":
+                grove.create_asset(args.asset)
             elif args.command == "grove-log":
                 _print_lines(grove.log())
             elif args.command == "rename-asset":
