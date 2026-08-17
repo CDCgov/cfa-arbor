@@ -9,7 +9,7 @@ CFA/Predict/ARB data management
 arbor is a lightweight tool for sharing data.
 Version 1 wraps a local filesystem directory with some simple conventions that will help ARB stay organized.
 
-As an ARB analyst, I'm working in the context of some response (say, `2026-ebola`).
+As an ARB analyst, I'm working in the context of some response.
 There are a few different things I want to do:
 
 1. Pull a data file, like some mobility data, from the internet.
@@ -26,115 +26,109 @@ There are a few different things I want to do:
 
 arbor abstracts over the storage backend where data is stored, and uses a simple hierarchy to make data discoverable and shareable:
 
-1. The *arbor* is the abstraction over the storage backend where the data physically live.
-   Version 1 uses a local directory; remote backends such as Azure Blob are future work.
-   An arbor consists of groves.
 2. A *grove* is a collection of related pieces of data.
    We would use one grove per response.
-   A grove can be renamed without changing its assets.
+   Version 1 stores the grove in a local directory; remote backends such as Azure Blob are future work.
 3. An *asset* is a data set or product.
-4. Each asset is made up of *revisions*, which are the actual payload of files associated with the asset.
-   A revision can be amended in place when its payload needs correction.
+4. Each asset is made up of *versions*, which are the actual payload of files associated with the asset.
 
 arbor tries to keep things really, really simple:
 
 - The layout within the storage backend is transparent to a human.
   You could look in the blob storage yourself and understand the layout, without arbor.
-- arbor keeps a little bit of metadata about when revisions are uploaded, amended, or destroyed, and when groves and assets are created or renamed.
-  Otherwise, whatever metadata you want to include as part of a revision, is up to you.
+- arbor keeps a little log of actions, and remembers which asset version is the altest one.
+  Otherwise, whatever metadata you want to include as part of an asset is up to you.
   Including a `README.txt` or `metadata.json` in every revision is maybe wise, but arbor won't force you to do that.
 - No arbor-specific permissions or restrictions.
   Whatever you could touch without arbor, you can touch with arbor.
-- If you know the grove ID (e.g., `"2026-ebola"`) and the asset ID (`"friction-surface"`), and your storage backend is configured, then that's all you need to know to get the relevant data.
+- If you have the grove configured, and you know the asset ID (`"friction-surface"`), then that's all you need to know to get the relevant data.
+
+## How is this different from...
+
+This is very similar to [pins](https://rstudio.github.io/pins-python/).
+Pins currently supports only single files as its assets.
+[I'm asking](https://github.com/rstudio/pins-python/issues/358) to see if that will change.
+If so, arbor could probably be replaced.
+
+The other solution would be git-like data management, like [lakeFS](https://lakefs.io/).
 
 ## A nominal walkthrough of functionality
 
-*Actual APIs are subject to change!*
-
-```python
-# Configure a backend without touching the filesystem
-arbor = arbor.LocalArbor("/path/to/backend")
-
-# Create its storage:
-arbor.init()
-# connect to existing storage with `arbor.connect()`
-# Connection checks only the top-level manifest; use `arbor.validate()` when you want a recursive integrity check.
-
-# See what groves there are in this storage backend
-arbor.list_grove_ids()
-
-# Pick your grove
-my_grove = arbor.grove("2026-ebola")
-
-# See what assets are in a grove
-my_grove.list_asset_ids()
-
-# Pick out an asset
-my_asset = my_grove.asset("friction-surface")
-
-# Download the latest revision of the asset locally
-my_grove.asset("friction-surface").save("/path/to/local/dir/")
-
-# Upload a new revision of an asset
-my_grove.asset("daily-cases").upload("/path/to/local/dir/")
-
-# Amend the latest revision in place
-my_grove.asset("daily-cases").amend("/path/to/local/dir/")
-
-# Destroy a revision (which you noticed just after uploading had an error)
-my_asset.get_rev_ids()
-my_asset.burn(5)
-
-# Rename a grove or asset
-my_grove.rename("2026-bundibugyo")`
-my_asset.rename("daily-case-counts")`
-```
-
-Perform the same operations through a small command-line interface that delegates to the Python API.
-
-See [`docs/spec.md`](docs/spec.md) for more details.
-
-## Configuration
-
+The grove model is invariant with respect to the backend, so configuring arbor is about configuring the backend.
 You can use a per-project `arbor.toml` like:
 
 ```toml
 [backend]
 type = "local"
-path = ".arbor"
+path = "my-grove"
 ```
 
 The path is resolved relative to `arbor.toml`.
 arbor can be called with an explicit config path.
 If `Arbor.from_config()` is called with a config path, it searches for the environmental variable `ARBOR_CONFIG` and then the nearest `arbor.toml`.
 
+This configuration lets you skip instantiating backend objects manually:
+
+```python
+grove = arbor.Grove.from_config()
+
+# you can set up a new backend storage environment
+grove.setup()
+# connect to existing storage with `grove.connect()`
+
+# See what assets are in a grove
+grove.list_asset_ids()
+
+# Pick out an asset
+asset = grove.asset("friction-surface")
+
+# Download the latest version of the asset locally
+asset.download("/download/to/local/path/")
+
+# Upload a new version of an asset
+asset.upload("/upload/from/local/path/")
+
+# Rename an asset
+asset.rename("daily-case-counts")`
+```
+
+Perform the same operations through a small command-line interface that delegates to the Python API.
+
+See [`docs/spec.md`](docs/spec.md) for more details.
+
 ## Command-line configuration
 
 ```console
 $ arbor status
-$ arbor init
-$ arbor grove-create 2026-ebola
-$ arbor upload 2026-ebola daily-cases ./data
-$ arbor revisions 2026-ebola daily-cases
+$ arbor setup
+$ arbor create-asset daily-cases
+$ arbor upload daily-cases ./daily-cases.csv
+$ arbor list-versions daily-cases
 ```
 
-Scripts can use the same configuration discovery as the CLI:
+## Backend file structure
 
-```python
-import arbor
-
-my_arbor = arbor.Arbor.from_config()
-my_arbor.connect()
 ```
-
-`Arbor.from_config(PATH)` accepts an explicit configuration path.
-Without one, it uses `ARBOR_CONFIG` and then searches upward from the current working directory for `arbor.toml`.
+grove-root
+  manifest.json
+  log.jsonl
+  assets/
+    asset-id1/
+      manifest.json
+      versions/
+        version-id1/
+          manifest.json
+          data/
+            data-file1.txt
+```
 
 ## Future versions
 
 Some useful behavior is deferred:
 
 - remote storage backends such as Azure Blob
+- destroying and amending versions
+- download overwrite
 - loading a revision directly into memory, especially when it contains multiple files
 - concurrency control for overlapping operations
 
