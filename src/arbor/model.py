@@ -9,20 +9,21 @@ from abc import ABC
 from pathlib import Path, PurePath
 from typing import Any, Self
 
-from .backend import Backend, from_config
+import arbor.backend
+
 from .types import ArborError, AssetID, AssetMode, VersionID
 
 
 class Grove(ABC):
     schema_version = 1
 
-    def __init__(self, backend: Backend):
+    def __init__(self, backend: arbor.backend.Backend):
         self.backend = backend
         self.connected = False
 
     @classmethod
     def from_config(cls, path: str | Path | None = None) -> Self:
-        return cls(from_config(path))
+        return cls(arbor.backend.from_config(path))
 
     def connect(self) -> Self:
         if self.connected:
