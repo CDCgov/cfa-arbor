@@ -18,9 +18,75 @@ def test_simple(tmp_path, capsys):
     re.match(r'LocalBackend\(".+"\)', capsys.readouterr().out)
     assert my_run(["setup"]) == 0
     assert my_run(["list-assets"]) == 0
-    assert my_run(["create-asset", "my-asset"]) == 0
+    assert my_run(["create", "my-asset"]) == 0
     assert my_run(["list-assets"]) == 0
     assert capsys.readouterr().out == "my-asset\n"
+
+
+def test_asset_commands(tmp_path, capsys):
+    """Asset commands select the latest version unless one is specified."""
+    grove_path = tmp_path / "grove"
+    config = (tmp_path / "arbor.toml").resolve()
+    config.write_text(f'[backend]\ntype = "local"\npath = "{grove_path!s}"\n')
+
+    def my_run(argv):
+        return run(["--config", str(config)] + argv)
+
+    assert my_run(["setup"]) == 0
+    assert my_run(["create", "my-asset"]) == 0
+
+    source = tmp_path / "data.csv"
+    source.write_text("x\n1\n")
+    assert my_run(["asset", "my-asset", "upload", str(source)]) == 0
+    version = capsys.readouterr().out.strip()
+    assert version
+
+    assert my_run(["asset", "my-asset", "list-versions"]) == 0
+    assert capsys.readouterr().out == f"{version}\n"
+
+    assert my_run(["asset", "my-asset", "latest-version"]) == 0
+    assert capsys.readouterr().out == f"{version}\n"
+
+    assert my_run(["asset", "my-asset", "list-data"]) == 0
+    assert capsys.readouterr().out == "data.csv\n"
+    assert my_run(["asset", "my-asset", "list-data", "--version", version]) == 0
+    assert capsys.readouterr().out == "data.csv\n"
+
+    assert my_run(["asset", "my-asset", "mode"]) == 0
+    assert capsys.readouterr().out == "file\n"
+    assert my_run(["asset", "my-asset", "mode", "--version", version]) == 0
+    assert capsys.readouterr().out == "file\n"
+
+    assert my_run(["asset", "my-asset", "validate"]) == 0
+    assert my_run(["asset", "my-asset", "validate", "--version", version]) == 0
+    assert my_run(["validate"]) == 0
+
+    latest_dest = tmp_path / "latest.csv"
+    assert my_run(["asset", "my-asset", "download", str(latest_dest)]) == 0
+    assert latest_dest.read_text() == source.read_text()
+
+    version_dest = tmp_path / "version.csv"
+    assert (
+        my_run(
+            [
+                "asset",
+                "my-asset",
+                "download",
+                str(version_dest),
+                "--version",
+                version,
+            ]
+        )
+        == 0
+    )
+    assert version_dest.read_text() == source.read_text()
+
+    assert my_run(["asset", "my-asset", "rename", "renamed-asset"]) == 0
+    assert my_run(["list-assets"]) == 0
+    assert capsys.readouterr().out == "renamed-asset\n"
+
+    assert my_run(["log"]) == 0
+    assert '"event": "upload"' in capsys.readouterr().out
 
 
 def test_find_config(tmp_path, monkeypatch, capsys):
