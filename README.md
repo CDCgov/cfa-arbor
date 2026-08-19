@@ -106,7 +106,7 @@ arbor list-assets
 arbor create ASSET
 
 arbor asset ASSET rename NEW-ID
-arbor asset ASSET upload SOURCE
+arbor asset ASSET upload SOURCE [--metadata METADATA]
 arbor asset ASSET list-versions
 arbor asset ASSET latest-version
 arbor asset ASSET list-data [--version VERSION]

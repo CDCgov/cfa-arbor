@@ -50,6 +50,12 @@ def _parser() -> argparse.ArgumentParser:
 
     upload = _command(asset_commands, "upload", _upload, "upload a new asset version")
     upload.add_argument("source", type=Path, metavar="SOURCE")
+    upload.add_argument(
+        "--metadata",
+        type=_metadata_json,
+        metavar="METADATA",
+        help="JSON object to store as asset version metadata",
+    )
 
     _command(
         asset_commands,
@@ -106,6 +112,18 @@ def _add_version_option(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _metadata_json(value: str) -> dict[str, object]:
+    try:
+        metadata = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise argparse.ArgumentTypeError("metadata must be valid JSON") from error
+
+    if not isinstance(metadata, dict):
+        raise argparse.ArgumentTypeError("metadata must be a JSON object")
+
+    return metadata
+
+
 def _grove(args: argparse.Namespace, *, connect: bool = True) -> Grove:
     grove = Grove.from_config(args.config)
 
@@ -159,7 +177,7 @@ def _rename_asset(args: argparse.Namespace) -> None:
 
 
 def _upload(args: argparse.Namespace) -> None:
-    print(_asset(args).upload(args.source))
+    print(_asset(args).upload(args.source, metadata=args.metadata))
 
 
 def _list_versions(args: argparse.Namespace) -> None:

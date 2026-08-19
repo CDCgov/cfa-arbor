@@ -38,7 +38,20 @@ def test_asset_commands(tmp_path, capsys):
 
     source = tmp_path / "data.csv"
     source.write_text("x\n1\n")
-    assert my_run(["asset", "my-asset", "upload", str(source)]) == 0
+    metadata = {"source": "cli", "rows": 1}
+    assert (
+        my_run(
+            [
+                "asset",
+                "my-asset",
+                "upload",
+                str(source),
+                "--metadata",
+                json.dumps(metadata),
+            ]
+        )
+        == 0
+    )
     version = capsys.readouterr().out.strip()
     assert version
 
@@ -59,9 +72,9 @@ def test_asset_commands(tmp_path, capsys):
     assert capsys.readouterr().out == "file\n"
 
     assert my_run(["asset", "my-asset", "metadata"]) == 0
-    assert json.loads(capsys.readouterr().out) == {}
+    assert json.loads(capsys.readouterr().out) == metadata
     assert my_run(["asset", "my-asset", "metadata", "--version", version]) == 0
-    assert json.loads(capsys.readouterr().out) == {}
+    assert json.loads(capsys.readouterr().out) == metadata
 
     assert my_run(["asset", "my-asset", "validate"]) == 0
     assert my_run(["asset", "my-asset", "validate", "--version", version]) == 0
