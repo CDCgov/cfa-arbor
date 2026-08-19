@@ -147,7 +147,7 @@ class Grove(ABC):
         self._require_version(asset_id, version)
         manifest = self._read_manifest(asset_id, version)
         mode = manifest["mode"]
-        metadata = manifest.get("metadata", {})
+        metadata = manifest["metadata"]
         if not isinstance(metadata, dict):
             raise ArborError(f"{asset_id}/{version} metadata must be an object")
 
@@ -263,9 +263,6 @@ class Grove(ABC):
     ) -> VersionID:
         self._require_asset(asset_id)
         source = Path(source)
-        metadata = metadata or {}
-        if not isinstance(metadata, dict):
-            raise ArborError("metadata must be a dictionary")
 
         if metadata is None:
             metadata = {}
