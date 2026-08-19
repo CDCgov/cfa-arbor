@@ -1,3 +1,4 @@
+import json
 import re
 
 from arbor.cli import run
@@ -56,6 +57,11 @@ def test_asset_commands(tmp_path, capsys):
     assert capsys.readouterr().out == "file\n"
     assert my_run(["asset", "my-asset", "mode", "--version", version]) == 0
     assert capsys.readouterr().out == "file\n"
+
+    assert my_run(["asset", "my-asset", "metadata"]) == 0
+    assert json.loads(capsys.readouterr().out) == {}
+    assert my_run(["asset", "my-asset", "metadata", "--version", version]) == 0
+    assert json.loads(capsys.readouterr().out) == {}
 
     assert my_run(["asset", "my-asset", "validate"]) == 0
     assert my_run(["asset", "my-asset", "validate", "--version", version]) == 0
