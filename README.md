@@ -1,75 +1,63 @@
 # cfa-arbor
 
-## Overview
-
-CFA/Predict/ARB data management
-
-## Overview and design principles
-
 arbor is a lightweight tool for sharing data.
-Version 1 wraps a local filesystem directory with some simple conventions that will help ARB stay organized.
+It enforces some simple storage conventions and abstracts over file systems, which should make it easier to collaborate.
 
-As an ARB analyst, I'm working in the context of some response.
-There are a few different things I want to do:
+## Use case and design principles
 
-1. Pull a data file, like some mobility data, from the internet.
-   I will use this in many analyses.
-   It might never change.
-   I upload this file.
-2. Pull a data file, like daily case data, that changes on some basis, either *ad hoc* or regular.
-   I will use this in downstream analyses.
-3. Generate a result, like simulation trajectories.
-   It was expensive to make this, so I want to share it.
-   It will enable other analysts' downstream analyses.
-   I upload this file.
-   When I run another analysis later, I'll upload a revision.
+Imagine you're working on a simulation project.
+You might want to:
+
+1. Pull a raw data file from the internet and cache it in a canonical place.
+1. Cache intermediate files so that every collaborator doesn't need to regenerate them.
+1. Share results in a canonical way, so that collaborators know where to find the "latest" results.
 
 arbor abstracts over the storage backend where data is stored, and uses a simple hierarchy to make data discoverable and shareable:
 
-2. A *grove* is a collection of related pieces of data.
-   We would use one grove per response.
-   Version 1 stores the grove in a local directory; remote backends such as Azure Blob are future work.
-3. An *asset* is a data set or product.
-4. Each asset is made up of *versions*, which are the actual payload of files associated with the asset.
+1. A *grove* is a collection of related pieces of data, like a project.
+1. An *asset* is a data set or product.
+1. Each asset is made up of *versions*, which are the actual payload of files associated with the asset.
 
-arbor tries to keep things really, really simple:
+arbor tries to keep things really simple:
 
 - The layout within the storage backend is transparent to a human.
-  You could look in the blob storage yourself and understand the layout, without arbor.
-- arbor keeps a little log of actions, and remembers which asset version is the latest one.
-  Every asset version has some optional associated metadata.
-- No arbor-specific permissions or restrictions.
+  You could look in the storage yourself and understand the layout, without arbor.
+- arbor keeps lightweight metadata, like a log of actions and a note about which asset version is the latest one.
+- arbor allows every asset (and version of that asset) to have associated metadata.
+  It does not enforce any structure on that metadata.
+- arbor doesn't enforce any specific permissions or restrictions.
   Whatever you could touch without arbor, you can touch with arbor.
-- If you have the grove configured, and you know the asset ID (`"friction-surface"`), then that's all you need to know to get the relevant data.
+- If you have the grove configured, and you know the asset ID, then that's all you need to know to get the relevant data.
 
-## How is this different from...
+## Related tools
 
-This is very similar to [pins](https://rstudio.github.io/pins-python/).
+arbor is very similar to [pins](https://rstudio.github.io/pins-python/).
 Pins currently supports only single files as its assets.
-[I'm asking](https://github.com/rstudio/pins-python/issues/358) to see if that will change.
-If so, arbor could probably be replaced.
+([I'm asking](https://github.com/rstudio/pins-python/issues/358) to see if that will change.
+If so, arbor could probably be replaced.)
 
-The other solution would be git-like data management, like [lakeFS](https://lakefs.io/).
+Git-like data management, like [lakeFS](https://lakefs.io/), is another approach.
 
 ## A nominal walkthrough of functionality
 
-The grove model is invariant with respect to the backend, so configuring arbor is about configuring the backend.
+The grove front-end model is independent of the backend, so configuring arbor is about configuring the backend.
 You can use a per-project `arbor.toml` like:
 
 ```toml
 [backend]
 type = "local"
-path = "my-grove"
+path = "/path/to/my-grove"
 ```
 
-The path is resolved relative to `arbor.toml`.
 arbor can be called with an explicit config path.
-If `Arbor.from_config()` is called with a config path, it searches for the environmental variable `ARBOR_CONFIG` and then the nearest `arbor.toml`.
+If `Arbor.from_config()` is called with a config path, it searches for the environmental variable `ARBOR_CONFIG` and then searches for an `arbor.toml`.
 
 This configuration lets you skip instantiating backend objects manually:
 
 ```python
-grove = arbor.Grove.from_config()
+from arbor import Grove
+
+grove = Grove.from_config()
 
 # you can set up a new backend storage environment
 grove.setup()
@@ -91,11 +79,9 @@ asset.upload("/upload/from/local/path/")
 asset.rename("daily-case-counts")`
 ```
 
-Perform the same operations through a small command-line interface that delegates to the Python API.
-
-See [`docs/spec.md`](docs/spec.md) for more details.
-
 ## Command-line configuration
+
+You can perform most of arbor's actions through a CLI:
 
 ```console
 arbor status
@@ -118,6 +104,8 @@ arbor asset ASSET validate [--version VERSION]
 
 ## Backend file structure
 
+The backend file structure is meant to be transparent to a human:
+
 ```
 grove-root
   manifest.json
@@ -127,20 +115,20 @@ grove-root
       manifest.json
       versions/
         version-id1/
-          manifest.json
+          manifest.json  # including asset metadata
           data/
             data-file1.txt
 ```
 
-## Future versions
+## Future functionality
 
 Some useful behavior is deferred:
 
 - remote storage backends such as Azure Blob
+- concurrency control
 - destroying and amending versions
 - download overwrite
 - loading a revision directly into memory, especially when it contains multiple files
-- concurrency control for overlapping operations
 
 ## Admins
 
