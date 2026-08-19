@@ -195,3 +195,15 @@ def test_from_config(tmp_path):
     backend = grove.backend
     assert isinstance(backend, LocalBackend)
     assert backend.path == (tmp_path / "my-grove").resolve()
+
+
+def test_metadata_query(grove, tmp_path):
+    asset = grove.create_asset("myasset")
+    src = tmp_path / "moby.txt"
+    src.write_text("Call me Ishmael")
+
+    v1 = asset.upload(src, metadata={"name": "first upload"})
+    v2 = asset.upload(src, metadata={"name": "second upload"})
+    assert v2 != v1
+
+    assert asset.find_versions_by_metadata({"name": "first upload"}) == [v1]
