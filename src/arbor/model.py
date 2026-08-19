@@ -147,6 +147,9 @@ class Grove(ABC):
         self._require_version(asset_id, version)
         manifest = self._read_manifest(asset_id, version)
         mode = manifest["mode"]
+        metadata = manifest.get("metadata", {})
+        if not isinstance(metadata, dict):
+            raise ArborError(f"{asset_id}/{version} metadata must be an object")
 
         if mode == "file":
             data = self.list_data(asset_id, version)
@@ -218,6 +221,27 @@ class Grove(ABC):
         dirs, _ = self.backend.scan(PurePath("assets", asset_id, "versions"))
         return dirs
 
+    def list_versions_with_metadata(
+        self, asset_id: AssetID
+    ) -> list[tuple[VersionID, dict[str, Any]]]:
+        """Return versions and their stored metadata."""
+        return [
+            (version, self.asset_metadata(asset_id, version))
+            for version in self.list_versions(asset_id)
+        ]
+
+    def find_versions_by_metadata(
+        self, asset_id: AssetID, query: dict[str, Any]
+    ) -> list[VersionID]:
+        """Return versions whose metadata contains the requested metadata subset."""
+        if not isinstance(query, dict):
+            raise ArborError("metadata query must be a dictionary")
+        return [
+            version
+            for version, metadata in self.list_versions_with_metadata(asset_id)
+            if _metadata_contains(metadata, query)
+        ]
+
     def latest_version(self, asset_id: AssetID) -> VersionID | None:
         self._require_asset(asset_id)
         manifest_path = PurePath("assets", asset_id, "manifest.json")
@@ -239,6 +263,9 @@ class Grove(ABC):
     ) -> VersionID:
         self._require_asset(asset_id)
         source = Path(source)
+        metadata = metadata or {}
+        if not isinstance(metadata, dict):
+            raise ArborError("metadata must be a dictionary")
 
         if metadata is None:
             metadata = {}
@@ -285,7 +312,14 @@ class Grove(ABC):
                 json.dumps(version_manifest) + "\n", version_manifest_path
             )
 
-            self._log_event({"event": "upload", "asset": asset_id, "version": version})
+            self._log_event(
+                {
+                    "event": "upload",
+                    "asset": asset_id,
+                    "version": version,
+                    "metadata": metadata,
+                }
+            )
         except BaseException:
             self.backend.rm(version_path)
             raise
@@ -395,6 +429,12 @@ class Asset:
     def metadata(self, version: VersionID | None = None) -> dict[str, Any]:
         return self.grove.asset_metadata(asset_id=self.asset_id, version=version)
 
+    def list_versions_with_metadata(self) -> list[tuple[VersionID, dict[str, Any]]]:
+        return self.grove.list_versions_with_metadata(asset_id=self.asset_id)
+
+    def find_versions_by_metadata(self, query: dict[str, Any]) -> list[VersionID]:
+        return self.grove.find_versions_by_metadata(asset_id=self.asset_id, query=query)
+
     def mode(self, version: VersionID | None = None) -> Any:
         return self.grove.asset_mode(asset_id=self.asset_id, version=version)
 
@@ -406,3 +446,18 @@ class Asset:
 
 def _parse_jsonl(x: str) -> list[Any]:
     return [json.loads(line) for line in x.splitlines()]
+
+
+def _metadata_contains(metadata: dict[str, Any], query: dict[str, Any]) -> bool:
+    for key, value in query.items():
+        if key not in metadata:
+            return False
+        candidate = metadata[key]
+        if isinstance(value, dict):
+            if not isinstance(candidate, dict):
+                return False
+            if not _metadata_contains(candidate, value):
+                return False
+        elif candidate != value:
+            return False
+    return True
