@@ -50,6 +50,12 @@ def _parser() -> argparse.ArgumentParser:
 
     upload = _command(asset_commands, "upload", _upload, "upload a new asset version")
     upload.add_argument("source", type=Path, metavar="SOURCE")
+    upload.add_argument(
+        "--metadata",
+        type=_metadata_json,
+        metavar="METADATA",
+        help="JSON object to store as asset version metadata",
+    )
 
     _command(
         asset_commands,
@@ -71,6 +77,9 @@ def _parser() -> argparse.ArgumentParser:
 
     mode = _command(asset_commands, "mode", _mode, "print the asset mode")
     _add_version_option(mode)
+
+    metadata = _command(asset_commands, "metadata", _metadata, "print asset metadata")
+    _add_version_option(metadata)
 
     download = _command(asset_commands, "download", _download, "download an asset")
     download.add_argument("dest", type=Path, metavar="DEST")
@@ -101,6 +110,18 @@ def _add_version_option(parser: argparse.ArgumentParser) -> None:
         metavar="VERSION",
         help="version ID; defaults to the asset's latest version",
     )
+
+
+def _metadata_json(value: str) -> dict[str, object]:
+    try:
+        metadata = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise argparse.ArgumentTypeError("metadata must be valid JSON") from error
+
+    if not isinstance(metadata, dict):
+        raise argparse.ArgumentTypeError("metadata must be a JSON object")
+
+    return metadata
 
 
 def _grove(args: argparse.Namespace, *, connect: bool = True) -> Grove:
@@ -156,7 +177,7 @@ def _rename_asset(args: argparse.Namespace) -> None:
 
 
 def _upload(args: argparse.Namespace) -> None:
-    print(_asset(args).upload(args.source))
+    print(_asset(args).upload(args.source, metadata=args.metadata))
 
 
 def _list_versions(args: argparse.Namespace) -> None:
@@ -175,6 +196,10 @@ def _list_data(args: argparse.Namespace) -> None:
 
 def _mode(args: argparse.Namespace) -> None:
     print(_asset(args).mode(version=args.version))
+
+
+def _metadata(args: argparse.Namespace) -> None:
+    print(json.dumps(_asset(args).metadata(version=args.version)))
 
 
 def _download(args: argparse.Namespace) -> None:

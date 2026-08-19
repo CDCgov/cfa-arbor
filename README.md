@@ -36,9 +36,8 @@ arbor tries to keep things really, really simple:
 
 - The layout within the storage backend is transparent to a human.
   You could look in the blob storage yourself and understand the layout, without arbor.
-- arbor keeps a little log of actions, and remembers which asset version is the altest one.
-  Otherwise, whatever metadata you want to include as part of an asset is up to you.
-  Including a `README.txt` or `metadata.json` in every revision is maybe wise, but arbor won't force you to do that.
+- arbor keeps a little log of actions, and remembers which asset version is the latest one.
+  Every asset version has some optional associated metadata.
 - No arbor-specific permissions or restrictions.
   Whatever you could touch without arbor, you can touch with arbor.
 - If you have the grove configured, and you know the asset ID (`"friction-surface"`), then that's all you need to know to get the relevant data.
@@ -99,11 +98,22 @@ See [`docs/spec.md`](docs/spec.md) for more details.
 ## Command-line configuration
 
 ```console
-$ arbor status
-$ arbor setup
-$ arbor create-asset daily-cases
-$ arbor upload daily-cases ./daily-cases.csv
-$ arbor list-versions daily-cases
+arbor status
+arbor setup
+arbor log
+arbor validate
+arbor list-assets
+arbor create ASSET
+
+arbor asset ASSET rename NEW-ID
+arbor asset ASSET upload SOURCE [--metadata METADATA]
+arbor asset ASSET list-versions
+arbor asset ASSET latest-version
+arbor asset ASSET list-data [--version VERSION]
+arbor asset ASSET metadata [--version VERSION]
+arbor asset ASSET mode [--version VERSION]
+arbor asset ASSET download DEST [--version VERSION]
+arbor asset ASSET validate [--version VERSION]
 ```
 
 ## Backend file structure

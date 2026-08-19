@@ -109,6 +109,29 @@ def test_lifecycle_file(grove, tmp_path):
     assert second_version != version
 
 
+def test_upload_metadata(grove, file_source):
+    asset = grove.create_asset("myasset")
+
+    metadata = {
+        "transform_version": "v1",
+        "upstreams": {"raw": "abc123"},
+        "note": "hello",
+    }
+
+    asset.upload(
+        file_source,
+        metadata=metadata,
+    )
+
+    assert asset.metadata() == metadata
+
+
+def test_missing_version_metadata_defaults_to_empty(grove, file_source):
+    asset = grove.create_asset("myasset")
+    asset.upload(file_source)
+    assert asset.metadata() == {}
+
+
 def test_rename_asset(grove, tmp_path):
     src = tmp_path / "moby.txt"
     src.write_text("Call me Ishmael")

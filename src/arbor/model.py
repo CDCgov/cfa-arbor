@@ -145,8 +145,7 @@ class Grove(ABC):
 
     def validate_version(self, asset_id: AssetID, version: VersionID) -> None:
         self._require_version(asset_id, version)
-        version_path = PurePath("assets", asset_id, "versions", version)
-        manifest = json.loads(self.backend.read_text(version_path / "manifest.json"))
+        manifest = self._read_manifest(asset_id, version)
         mode = manifest["mode"]
 
         if mode == "file":
@@ -162,6 +161,21 @@ class Grove(ABC):
             pass
         else:
             raise RuntimeError(f"bad mode {mode}")
+
+    def _read_manifest(self, asset_id: AssetID, version: VersionID) -> dict[str, Any]:
+        self._require_version(asset_id, version)
+        manifest_path = PurePath(
+            "assets", asset_id, "versions", version, "manifest.json"
+        )
+        manifest = json.loads(self.backend.read_text(manifest_path))
+
+        keys = set(manifest.keys())
+        if not keys == {"mode", "metadata"}:
+            raise ArborError(
+                f"Malformed manifest {asset_id}/{version} with keys {keys}"
+            )
+
+        return manifest
 
     def _resolve_version(
         self, asset_id: AssetID, version: VersionID | None
@@ -217,9 +231,19 @@ class Grove(ABC):
         else:
             raise ArborError(f"{asset_id} has no latest version")
 
-    def upload(self, asset_id: AssetID, source: os.PathLike[str]) -> VersionID:
+    def upload(
+        self,
+        asset_id: AssetID,
+        source: os.PathLike[str],
+        metadata: dict[str, Any] | None = None,
+    ) -> VersionID:
         self._require_asset(asset_id)
         source = Path(source)
+
+        if metadata is None:
+            metadata = {}
+        if not isinstance(metadata, dict):
+            raise ArborError("metadata must be a dictionary")
 
         # determine new version
         version = str(uuid.uuid4())[:6]
@@ -241,7 +265,7 @@ class Grove(ABC):
 
         # set up manifest contents
         asset_manifest = {"latest_version": version}
-        version_manifest = {"mode": mode}
+        version_manifest = {"mode": mode, "metadata": metadata}
 
         try:
             self.backend.mkdir(version_path)
@@ -267,6 +291,14 @@ class Grove(ABC):
             raise
 
         return version
+
+    def asset_metadata(
+        self, asset_id: AssetID, version: VersionID | None = None
+    ) -> dict[str, Any]:
+        """Return metadata stored on a version manifest."""
+        version = self._resolve_version(asset_id, version)
+        manifest = self._read_manifest(asset_id, version)
+        return manifest["metadata"]
 
     def _log_event(self, event: dict[str, Any]):
         time = (
@@ -353,8 +385,15 @@ class Asset:
     def latest_version(self) -> VersionID | None:
         return self.grove.latest_version(asset_id=self.asset_id)
 
-    def upload(self, source: os.PathLike[str]) -> VersionID:
-        return self.grove.upload(asset_id=self.asset_id, source=source)
+    def upload(
+        self, source: os.PathLike[str], metadata: dict[str, Any] | None = None
+    ) -> VersionID:
+        return self.grove.upload(
+            asset_id=self.asset_id, source=source, metadata=metadata
+        )
+
+    def metadata(self, version: VersionID | None = None) -> dict[str, Any]:
+        return self.grove.asset_metadata(asset_id=self.asset_id, version=version)
 
     def mode(self, version: VersionID | None = None) -> Any:
         return self.grove.asset_mode(asset_id=self.asset_id, version=version)
