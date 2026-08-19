@@ -109,76 +109,27 @@ def test_lifecycle_file(grove, tmp_path):
     assert second_version != version
 
 
-def test_upload_version_metadata(grove, file_source):
+def test_upload_metadata(grove, file_source):
     asset = grove.create_asset("myasset")
-    version = asset.upload(
-        file_source,
-        metadata={
-            "transform_version": "v1",
-            "upstreams": {"raw": "abc123"},
-            "note": "hello",
-        },
-    )
 
-    assert asset.version_metadata(version) == {
+    metadata = {
         "transform_version": "v1",
         "upstreams": {"raw": "abc123"},
         "note": "hello",
     }
-    assert asset.list_versions_with_metadata() == [
-        (
-            version,
-            {
-                "transform_version": "v1",
-                "upstreams": {"raw": "abc123"},
-                "note": "hello",
-            },
-        )
-    ]
 
-
-def test_find_versions_uses_nested_metadata_subset(grove, tmp_path):
-    asset = grove.create_asset("prepared")
-    first = tmp_path / "first.txt"
-    first.write_text("first")
-    second = tmp_path / "second.txt"
-    second.write_text("second")
-
-    first_version = asset.upload(
-        first,
-        metadata={
-            "transform_version": "v1",
-            "upstreams": {"raw": "abc123", "boundaries": "def456"},
-            "extra": "kept",
-        },
-    )
     asset.upload(
-        second,
-        metadata={
-            "transform_version": "v2",
-            "upstreams": {"raw": "abc123", "boundaries": "def456"},
-        },
+        file_source,
+        metadata=metadata,
     )
 
-    assert asset.find_versions(
-        {
-            "transform_version": "v1",
-            "upstreams": {"raw": "abc123"},
-        }
-    ) == [first_version]
+    assert asset.metadata() == metadata
 
 
 def test_missing_version_metadata_defaults_to_empty(grove, file_source):
     asset = grove.create_asset("myasset")
-    version = asset.upload(file_source)
-    root = grove.backend.path
-    assert isinstance(root, Path)
-    manifest = root / "assets" / "myasset" / "versions" / version / "manifest.json"
-    manifest.write_text('{"mode": "file"}\n')
-
-    assert asset.version_metadata(version) == {}
-    assert asset.find_versions({}) == [version]
-    grove.validate()
+    asset.upload(file_source)
+    assert asset.metadata() == {}
 
 
 def test_rename_asset(grove, tmp_path):

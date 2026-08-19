@@ -72,6 +72,9 @@ def _parser() -> argparse.ArgumentParser:
     mode = _command(asset_commands, "mode", _mode, "print the asset mode")
     _add_version_option(mode)
 
+    metadata = _command(asset_commands, "metadata", _metadata, "print asset metadata")
+    _add_version_option(metadata)
+
     download = _command(asset_commands, "download", _download, "download an asset")
     download.add_argument("dest", type=Path, metavar="DEST")
     _add_version_option(download)
@@ -175,6 +178,10 @@ def _list_data(args: argparse.Namespace) -> None:
 
 def _mode(args: argparse.Namespace) -> None:
     print(_asset(args).mode(version=args.version))
+
+
+def _metadata(args: argparse.Namespace) -> None:
+    print(json.dumps(_asset(args).metadata(version=args.version)))
 
 
 def _download(args: argparse.Namespace) -> None:
