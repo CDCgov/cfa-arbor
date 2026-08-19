@@ -148,6 +148,9 @@ class Grove(ABC):
         version_path = PurePath("assets", asset_id, "versions", version)
         manifest = json.loads(self.backend.read_text(version_path / "manifest.json"))
         mode = manifest["mode"]
+        metadata = manifest.get("metadata", {})
+        if not isinstance(metadata, dict):
+            raise ArborError(f"{asset_id}/{version} metadata must be an object")
 
         if mode == "file":
             data = self.list_data(asset_id, version)
@@ -217,9 +220,17 @@ class Grove(ABC):
         else:
             raise ArborError(f"{asset_id} has no latest version")
 
-    def upload(self, asset_id: AssetID, source: os.PathLike[str]) -> VersionID:
+    def upload(
+        self,
+        asset_id: AssetID,
+        source: os.PathLike[str],
+        metadata: dict[str, Any] | None = None,
+    ) -> VersionID:
         self._require_asset(asset_id)
         source = Path(source)
+        metadata = metadata or {}
+        if not isinstance(metadata, dict):
+            raise ArborError("metadata must be a dictionary")
 
         # determine new version
         version = str(uuid.uuid4())[:6]
@@ -241,7 +252,7 @@ class Grove(ABC):
 
         # set up manifest contents
         asset_manifest = {"latest_version": version}
-        version_manifest = {"mode": mode}
+        version_manifest = {"mode": mode, "metadata": metadata}
 
         try:
             self.backend.mkdir(version_path)
@@ -261,12 +272,52 @@ class Grove(ABC):
                 json.dumps(version_manifest) + "\n", version_manifest_path
             )
 
-            self._log_event({"event": "upload", "asset": asset_id, "version": version})
+            self._log_event(
+                {
+                    "event": "upload",
+                    "asset": asset_id,
+                    "version": version,
+                    "metadata": metadata,
+                }
+            )
         except BaseException:
             self.backend.rm(version_path)
             raise
 
         return version
+
+    def version_metadata(self, asset_id: AssetID, version: VersionID) -> dict[str, Any]:
+        """Return metadata stored on a version manifest."""
+        self._require_version(asset_id, version)
+        manifest_path = PurePath(
+            "assets", asset_id, "versions", version, "manifest.json"
+        )
+        manifest = json.loads(self.backend.read_text(manifest_path))
+        metadata = manifest.get("metadata", {})
+        if not isinstance(metadata, dict):
+            raise ArborError(f"{asset_id}/{version} metadata must be an object")
+        return metadata
+
+    def list_versions_with_metadata(
+        self, asset_id: AssetID
+    ) -> list[tuple[VersionID, dict[str, Any]]]:
+        """Return versions and their stored metadata."""
+        return [
+            (version, self.version_metadata(asset_id, version))
+            for version in self.list_versions(asset_id)
+        ]
+
+    def find_versions(
+        self, asset_id: AssetID, metadata: dict[str, Any]
+    ) -> list[VersionID]:
+        """Return versions whose metadata contains the requested metadata subset."""
+        if not isinstance(metadata, dict):
+            raise ArborError("metadata must be a dictionary")
+        return [
+            version
+            for version, version_metadata in self.list_versions_with_metadata(asset_id)
+            if _metadata_contains(version_metadata, metadata)
+        ]
 
     def _log_event(self, event: dict[str, Any]):
         time = (
@@ -353,8 +404,21 @@ class Asset:
     def latest_version(self) -> VersionID | None:
         return self.grove.latest_version(asset_id=self.asset_id)
 
-    def upload(self, source: os.PathLike[str]) -> VersionID:
-        return self.grove.upload(asset_id=self.asset_id, source=source)
+    def upload(
+        self, source: os.PathLike[str], metadata: dict[str, Any] | None = None
+    ) -> VersionID:
+        return self.grove.upload(
+            asset_id=self.asset_id, source=source, metadata=metadata
+        )
+
+    def version_metadata(self, version: VersionID) -> dict[str, Any]:
+        return self.grove.version_metadata(asset_id=self.asset_id, version=version)
+
+    def list_versions_with_metadata(self) -> list[tuple[VersionID, dict[str, Any]]]:
+        return self.grove.list_versions_with_metadata(asset_id=self.asset_id)
+
+    def find_versions(self, metadata: dict[str, Any]) -> list[VersionID]:
+        return self.grove.find_versions(asset_id=self.asset_id, metadata=metadata)
 
     def mode(self, version: VersionID | None = None) -> Any:
         return self.grove.asset_mode(asset_id=self.asset_id, version=version)
@@ -367,3 +431,18 @@ class Asset:
 
 def _parse_jsonl(x: str) -> list[Any]:
     return [json.loads(line) for line in x.splitlines()]
+
+
+def _metadata_contains(metadata: dict[str, Any], query: dict[str, Any]) -> bool:
+    for key, value in query.items():
+        if key not in metadata:
+            return False
+        candidate = metadata[key]
+        if isinstance(value, dict):
+            if not isinstance(candidate, dict):
+                return False
+            if not _metadata_contains(candidate, value):
+                return False
+        elif candidate != value:
+            return False
+    return True
