@@ -1,0 +1,10 @@
+[general]
+# allow for an empty commit message
+ignore=body-is-missing
+
+[title-must-not-contain-word]
+words=wip,todo
+
+[title-match-regex]
+# Conventional Commits regex pattern
+regex=^(feat|fix|docs|refactor|chore|revert)(\(.+\))?!?: .+$
