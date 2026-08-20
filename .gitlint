@@ -7,4 +7,4 @@ words=wip,todo
 
 [title-match-regex]
 # Conventional Commits regex pattern
-regex=^(feat|fix|docs|refactor|chore|revert)(\(.+\))?!?: .+$
+regex=^(feat|fix|docs|refactor|chore|revert|release)(\(.+\))?!?: .+$
