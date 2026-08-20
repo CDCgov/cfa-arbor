@@ -1,6 +1,6 @@
 [project]
 name = "arbor"
-version = "0.1.0"
+version = "1.0.0"
 description = "ARB data management"
 readme = "README.md"
 authors = [{ name = "Scott Olesen", email = "ulp7@cdc.gov" }]
