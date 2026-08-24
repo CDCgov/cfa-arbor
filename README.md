@@ -3,6 +3,14 @@
 arbor is a lightweight tool for sharing data.
 It enforces some simple storage conventions and abstracts over file systems, which should make it easier to collaborate.
 
+## Installation
+
+To include the Azure optional dependency:
+
+```bash
+uv add "git+https://github.com/CDCgov/cfa-arbor[azure]"
+```
+
 ## Use case and design principles
 
 Imagine you're working on a simulation project.
