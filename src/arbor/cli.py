@@ -6,8 +6,8 @@ import sys
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from .model import Asset, Grove
-from .types import ArborError, VersionID
+from arbor.model import Asset, Grove
+from arbor.types import ArborError, VersionID
 
 Command = Callable[[argparse.Namespace], None]
 
@@ -124,13 +124,8 @@ def _metadata_json(value: str) -> dict[str, object]:
     return metadata
 
 
-def _grove(args: argparse.Namespace, *, connect: bool = True) -> Grove:
-    grove = Grove.from_config(args.config)
-
-    if connect:
-        grove.connect()
-
-    return grove
+def _grove(args: argparse.Namespace) -> Grove:
+    return Grove.from_config(args.config)
 
 
 def _asset(args: argparse.Namespace) -> Asset:
@@ -148,11 +143,13 @@ def _selected_version(asset: Asset, version: VersionID | None) -> VersionID:
 
 
 def _status(args: argparse.Namespace) -> None:
-    print(repr(_grove(args, connect=False).backend))
+    grove = _grove(args)
+    status = {"grove": str(grove.root), "filesystem": grove.fs.to_dict()}
+    print(json.dumps(status))
 
 
 def _setup(args: argparse.Namespace) -> None:
-    _grove(args, connect=False).setup()
+    _grove(args).setup()
 
 
 def _log(args: argparse.Namespace) -> None:

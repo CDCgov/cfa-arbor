@@ -1,34 +1,55 @@
 import json
-import re
+from pathlib import Path
+
+import pytest
 
 from arbor.cli import run
 
 
-def test_simple(tmp_path, capsys):
-    """Basic lifecycle works when specifying the config explicitly"""
-    grove_path = tmp_path / "grove"
+@pytest.fixture
+def config(tmp_path: Path) -> Path:
+    config_dir = tmp_path / "arbor-toml-dir"
+    config_dir.mkdir()
+    config_path = config_dir / "arbor.toml"
 
-    config = (tmp_path / "arbor.toml").resolve()
-    config.write_text(f'[backend]\ntype = "local"\npath = "{grove_path!s}"\n')
+    grove_path = tmp_path / "grove"
+    config_path.write_text(
+        f'grove="{grove_path!s}"\n[filesystem]\nprotocol = "local"\n'
+    )
+
+    return config_path.resolve()
+
+
+def test_lifecycle(config: Path, capsys):
+    """Basic lifecycle works when specifying the config explicitly"""
 
     def my_run(argv):
         """Run with this config"""
         return run(["--config", str(config)] + argv)
 
     assert my_run(["status"]) == 0
-    re.match(r'LocalBackend\(".+"\)', capsys.readouterr().out)
+
+    # status should be two lines, one with the grove root, one with the file system spec
+    status = json.loads(capsys.readouterr().out)
+    assert set(status.keys()) == {"grove", "filesystem"}
+    fs = status["filesystem"]
+    assert isinstance(fs, dict)
+    assert set(fs.keys()) == {"cls", "protocol", "args"}
+    assert fs["protocol"] == "file"
+    assert "LocalFileSystem" in fs["cls"]
+
     assert my_run(["setup"]) == 0
+    # now the grove should exist
+    assert Path(status["grove"]).is_dir()
+
     assert my_run(["list-assets"]) == 0
     assert my_run(["create", "my-asset"]) == 0
     assert my_run(["list-assets"]) == 0
     assert capsys.readouterr().out == "my-asset\n"
 
 
-def test_asset_commands(tmp_path, capsys):
+def test_asset_commands(tmp_path: Path, config: Path, capsys):
     """Asset commands select the latest version unless one is specified."""
-    grove_path = tmp_path / "grove"
-    config = (tmp_path / "arbor.toml").resolve()
-    config.write_text(f'[backend]\ntype = "local"\npath = "{grove_path!s}"\n')
 
     def my_run(argv):
         return run(["--config", str(config)] + argv)
@@ -108,35 +129,26 @@ def test_asset_commands(tmp_path, capsys):
     assert '"event": "upload"' in capsys.readouterr().out
 
 
-def test_find_config(tmp_path, monkeypatch, capsys):
-    """Can find a config locally"""
-    grove_dir = tmp_path / "grove"
+def test_find_config_local(config: Path, monkeypatch):
+    """Can find a config in the current directory"""
+    monkeypatch.chdir(config.parent)
+    assert run(["status"]) == 0
 
-    work_dir = tmp_path / "work"
-    work_dir.mkdir()
-    config_path = work_dir / "arbor.toml"
-    config_path.write_text(
-        "\n".join(["[backend]", 'type = "local"', f'path = "{grove_dir!s}"'])
-    )
 
+def test_find_config_up(config: Path, monkeypatch, capsys):
+    """Can find arbor.toml by searching upwards"""
+    work_dir = config.parent / "subdir" / "subsubdir"
+    work_dir.mkdir(parents=True)
     monkeypatch.chdir(work_dir)
 
     assert run(["status"]) == 0
-    assert capsys.readouterr().out == f'LocalBackend("{grove_dir!s}")\n'
+    assert "LocalFileSystem" in capsys.readouterr().out
 
 
-def test_use_env_var(tmp_path, monkeypatch, capsys):
-    grove_dir = tmp_path / "grove"
-    work_dir = tmp_path / "work"
+def test_find_config_env_var(tmp_path: Path, config: Path, monkeypatch, capsys):
+    # move to an arbitrary work location
+    work_dir = tmp_path / "find-config-dir"
     work_dir.mkdir()
-
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    config_path = config_dir / "arbor.toml"
-    config_path.write_text(
-        "\n".join(["[backend]", 'type = "local"', f'path = "{grove_dir!s}"'])
-    )
-
     monkeypatch.chdir(work_dir)
 
     # can't find config if it's not in the local tree
@@ -144,23 +156,7 @@ def test_use_env_var(tmp_path, monkeypatch, capsys):
     assert "could not find arbor.toml" in capsys.readouterr().err
 
     # can find it if we set an env var
-    monkeypatch.setenv("ARBOR_CONFIG", str(config_path))
+    monkeypatch.setenv("ARBOR_CONFIG", str(config))
 
     assert run(["status"]) == 0
-    assert capsys.readouterr().out == f'LocalBackend("{grove_dir!s}")\n'
-
-
-def test_config_up(tmp_path, monkeypatch, capsys):
-    """Search upwards for the arbor.toml"""
-    grove_dir = tmp_path / "grove"
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    (config_dir / "arbor.toml").write_text(
-        "\n".join(["[backend]", 'type = "local"', f'path = "{grove_dir!s}"'])
-    )
-    work_dir = config_dir / "below_config" / "yet_deeper"
-    work_dir.mkdir(parents=True)
-    monkeypatch.chdir(work_dir)
-
-    assert run(["status"]) == 0
-    assert capsys.readouterr().out == f'LocalBackend("{grove_dir!s}")\n'
+    assert "LocalFileSystem" in capsys.readouterr().out

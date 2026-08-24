@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Use [fsspec](https://github.com/fsspec/filesystem_spec) for the file system API
+- **Breaking**: Change `arbor.toml` format
+
 ## [v1.0.0] - 2026-08-19
 
 ### Added
