@@ -19,8 +19,7 @@ def azure_grove(pytestconfig):
     assert account_name is not None, "Missing azure account name"
     assert container is not None, "Missing azure container"
 
-    test_prefix = f"arbor-e2e/{uuid.uuid4().hex}"
-    root = f"{container}/{test_prefix}"
+    root = f"{container}/arbor-e2e-{uuid.uuid4().hex}"
 
     fs = fsspec.filesystem("abfs", account_name=account_name, skip_instance_cache=True)
     grove = Grove(root=root, fs=fs)
@@ -29,8 +28,6 @@ def azure_grove(pytestconfig):
         grove.setup()
         yield grove
     finally:
-        # Never widen cleanup beyond the unique prefix created by this fixture.
-        assert test_prefix.startswith("arbor-e2e/")
         if fs.exists(root):
             fs.rm(root, recursive=True)
 

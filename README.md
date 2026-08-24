@@ -134,9 +134,11 @@ protocol = "abfs"
 account_name = "my-storage-account-name"
 ```
 
-To run the Azure Blob end-to-end test, sign in with `az login`, set `ARBOR_AZURE_ACCOUNT_NAME` and `ARBOR_AZURE_CONTAINER`, then run:
+To run the Azure Blob end-to-end test, sign in with `az login` then run:
 
 ```sh
+export ARBOR_AZURE_ACCOUNT_NAME=my-storage-account-name
+export ARBOR_AZURE_CONTAINER=my-container-root-path
 uv run --extra azure pytest tests/test_azure.py --run-azure-e2e
 ```
 
