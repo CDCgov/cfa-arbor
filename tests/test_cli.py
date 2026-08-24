@@ -49,7 +49,7 @@ def test_asset_commands(tmp_path: Path, config: Path, capsys):
             [
                 "asset",
                 "my-asset",
-                "upload",
+                "upload-file",
                 str(source),
                 "--metadata",
                 json.dumps(metadata),
@@ -86,7 +86,7 @@ def test_asset_commands(tmp_path: Path, config: Path, capsys):
     assert my_run(["validate"]) == 0
 
     latest_dest = tmp_path / "latest.csv"
-    assert my_run(["asset", "my-asset", "download", str(latest_dest)]) == 0
+    assert my_run(["asset", "my-asset", "download-file", str(latest_dest)]) == 0
     assert latest_dest.read_text() == source.read_text()
 
     version_dest = tmp_path / "version.csv"
@@ -95,7 +95,7 @@ def test_asset_commands(tmp_path: Path, config: Path, capsys):
             [
                 "asset",
                 "my-asset",
-                "download",
+                "download-file",
                 str(version_dest),
                 "--version",
                 version,

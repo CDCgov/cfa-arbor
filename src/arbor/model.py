@@ -184,12 +184,15 @@ class Grove(ABC):
     def list_data(self, asset_id: AssetID, version: VersionID | None) -> list[str]:
         version = self._resolve_version(asset_id, version)
         data_path = self._join(["assets", asset_id, "versions", version, "data"])
-        paths = [fn for _, _, fns in self.dfs.walk(data_path) for fn in fns]
 
-        if not len(paths) == 1:
-            raise NotImplementedError("only single-file assets are supported")
-
-        return paths
+        paths = []
+        for root, _, files in self.dfs.walk(data_path):
+            relative_root = root.removeprefix(data_path).lstrip(self.dfs.sep)
+            paths.extend(
+                self._join([relative_root, file]) if relative_root else file
+                for file in files
+            )
+        return sorted(paths)
 
     def list_versions(self, asset_id: AssetID) -> list[VersionID]:
         self._require_asset(asset_id)
@@ -211,14 +214,18 @@ class Grove(ABC):
         else:
             raise ArborError(f"{asset_id} has no latest version")
 
-    def upload(
+    def _upload(
         self,
         asset_id: AssetID,
-        source: PathLike,
+        files: list[tuple[Path, str]],
+        mode: AssetMode,
         metadata: dict[str, Any] | None = None,
     ) -> VersionID:
+        """
+        Args:
+            files: pairs of local Paths and remote data/-relative path-strings
+        """
         self._require_asset(asset_id)
-        source = Path(source)
 
         if metadata is None:
             metadata = {}
@@ -227,16 +234,6 @@ class Grove(ABC):
 
         # determine new version
         version = str(uuid.uuid4())[:6]
-
-        # determine new mode
-        if source.exists() and source.is_file():
-            mode = "file"
-            recursive = False
-        elif source.exists() and source.is_dir():
-            mode = "dir"
-            raise NotImplementedError("directory upload not implemented")
-        else:
-            raise ArborError(f"cannot upload {source}")
 
         # set up paths
         asset_path = self._join(["assets", asset_id])
@@ -252,7 +249,11 @@ class Grove(ABC):
         try:
             self.dfs.mkdir(version_path)
             self.dfs.mkdir(data_path)
-            self.dfs.put(source, data_path, recursive=recursive)
+            for source, relative_path in files:
+                destination = self._join([data_path, relative_path])
+                parent = destination.rsplit(self.dfs.sep, maxsplit=1)[0]
+                self.dfs.makedirs(parent, exist_ok=True)
+                self.dfs.put_file(str(source), destination)
 
             self._write_json(path=asset_manifest_path, value=asset_manifest)
             self._write_json(path=version_manifest_path, value=version_manifest)
@@ -262,6 +263,44 @@ class Grove(ABC):
             raise
 
         return version
+
+    def upload_file(
+        self,
+        asset_id: AssetID,
+        source: PathLike,
+        metadata: dict[str, Any] | None = None,
+    ) -> VersionID:
+        source = Path(source)
+        if not source.is_file():
+            raise ArborError(
+                f"{source} is not a file; cannot upload as a file-mode asset"
+            )
+        return self._upload(
+            asset_id=asset_id,
+            files=[(source, source.name)],
+            mode="file",
+            metadata=metadata,
+        )
+
+    def upload_dir(
+        self,
+        asset_id: AssetID,
+        source: PathLike,
+        metadata: dict[str, Any] | None = None,
+    ) -> VersionID:
+        source = Path(source)
+        if not source.is_dir():
+            raise ArborError(
+                f"{source} is not a directory; cannot upload as a dir-mode asset"
+            )
+        files = [
+            (path, path.relative_to(source).as_posix())
+            for path in sorted(source.rglob("*"))
+            if path.is_file()
+        ]
+        return self._upload(
+            asset_id=asset_id, files=files, mode="dir", metadata=metadata
+        )
 
     def asset_metadata(
         self, asset_id: AssetID, version: VersionID | None = None
@@ -299,37 +338,64 @@ class Grove(ABC):
         manifest = json.loads(self.dfs.read_text(manifest_path))
         return manifest["mode"]
 
-    def download(
+    def download_file(
         self,
         asset_id: AssetID,
         dest: os.PathLike[str],
         version: VersionID | None = None,
     ) -> None:
+        version = self._resolve_version(asset_id, version)
         mode = self.asset_mode(asset_id, version)
+        if mode != "file":
+            raise ArborError(f"asset {asset_id} is not in file mode")
+
+        data = self.list_data(asset_id, version)
+        if len(data) != 1:
+            raise ArborError(f"asset {asset_id}/{version} does not contain one file")
+
         dest = Path(dest)
-
-        if version is None:
-            version = self._latest_version_required(asset_id)
-
-        if mode == "file":
-            data = self.list_data(asset_id, version)
-            if not len(data) == 1:
-                raise ArborError(
-                    f"Asset {asset_id}/{version} is file mode but has more than 1 file"
-                )
-
-            source = self._join(
-                ["assets", asset_id, "versions", version, "data", data[0]]
-            )
-            recursive = False
-        elif mode == "dir":
-            source = self._join(["assets", asset_id, "versions", version, "data"])
-            recursive = True
-            raise NotImplementedError("directory downloads not implemented")
+        if dest.is_dir():
+            target = dest / Path(data[0]).name
         else:
-            raise ValueError(f"Invalid mode {mode}")
+            target = dest
 
-        self.dfs.get(source, str(dest), recursive=recursive)
+        if target.exists():
+            raise ArborError(f"destination {target} exists")
+
+        if not target.parent.is_dir():
+            raise ArborError(f"destination directory {target.parent} does not exist")
+
+        source = self._join(["assets", asset_id, "versions", version, "data", data[0]])
+        self.dfs.get_file(source, str(target))
+
+    def download_dir(
+        self,
+        asset_id: AssetID,
+        dest: os.PathLike[str],
+        version: VersionID | None = None,
+    ) -> None:
+        version = self._resolve_version(asset_id, version)
+        mode = self.asset_mode(asset_id, version)
+        if mode != "dir":
+            raise ArborError(f"asset {asset_id} is not in dir mode")
+
+        dest = Path(dest)
+        if dest.exists() and not dest.is_dir():
+            raise ArborError(f"destination {dest} is not a directory")
+
+        targets = [
+            (relative, dest.joinpath(*relative.split("/")))
+            for relative in self.list_data(asset_id, version)
+        ]
+        for _, target in targets:
+            if target.exists():
+                raise ArborError(f"destination {target} exists")
+
+        dest.mkdir(parents=True, exist_ok=True)
+        data_path = self._join(["assets", asset_id, "versions", version, "data"])
+        for relative, target in targets:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self.dfs.get_file(self._join([data_path, relative]), str(target))
 
 
 class Asset:
@@ -354,10 +420,17 @@ class Asset:
     def latest_version(self) -> VersionID | None:
         return self.grove.latest_version(asset_id=self.asset_id)
 
-    def upload(
+    def upload_file(
         self, source: os.PathLike[str], metadata: dict[str, Any] | None = None
     ) -> VersionID:
-        return self.grove.upload(
+        return self.grove.upload_file(
+            asset_id=self.asset_id, source=source, metadata=metadata
+        )
+
+    def upload_dir(
+        self, source: os.PathLike[str], metadata: dict[str, Any] | None = None
+    ) -> VersionID:
+        return self.grove.upload_dir(
             asset_id=self.asset_id, source=source, metadata=metadata
         )
 
@@ -367,10 +440,15 @@ class Asset:
     def mode(self, version: VersionID | None = None) -> Any:
         return self.grove.asset_mode(asset_id=self.asset_id, version=version)
 
-    def download(
+    def download_file(
         self, dest: os.PathLike[str], version: VersionID | None = None
     ) -> None:
-        self.grove.download(asset_id=self.asset_id, dest=dest, version=version)
+        self.grove.download_file(asset_id=self.asset_id, dest=dest, version=version)
+
+    def download_dir(
+        self, dest: os.PathLike[str], version: VersionID | None = None
+    ) -> None:
+        self.grove.download_dir(asset_id=self.asset_id, dest=dest, version=version)
 
 
 def _parse_jsonl(x: str) -> list[Any]:

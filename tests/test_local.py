@@ -45,15 +45,28 @@ def test_second_connection(tmp_path):
 
 def test_list_data_one_file(grove: Grove, file_source):
     asset = grove.create_asset("mybook")
-    asset.upload(file_source)
+    asset.upload_file(file_source)
     assert asset.list_data() == ["moby.txt"]
+
+
+def test_directory_transfer(grove: Grove, dir_source, tmp_path):
+    (dir_source / "empty").mkdir()
+    asset = grove.create_asset("mybooks")
+    asset.upload_dir(dir_source)
+    assert asset.list_data() == ["books/moby.txt", "readme.json"]
+
+    destination = tmp_path / "downloaded"
+    asset.download_dir(destination)
+    assert (destination / "books" / "moby.txt").read_text() == "Call me Ishmael"
+    with pytest.raises(ArborError, match="exists"):
+        asset.download_dir(destination)
 
 
 def test_list_versions(grove: Grove, file_source):
     asset = grove.create_asset("mybook")
-    asset.upload(file_source)
-    asset.upload(file_source)
-    asset.upload(file_source)
+    asset.upload_file(file_source)
+    asset.upload_file(file_source)
+    asset.upload_file(file_source)
     versions = asset.list_versions()
     assert len(versions) == 3
     assert len(versions[0]) == 6
@@ -72,7 +85,7 @@ def test_upload_metadata(grove: Grove, file_source):
         "note": "hello",
     }
 
-    asset.upload(
+    asset.upload_file(
         file_source,
         metadata=metadata,
     )
@@ -82,7 +95,7 @@ def test_upload_metadata(grove: Grove, file_source):
 
 def test_missing_version_metadata_defaults_to_empty(grove, file_source):
     asset = grove.create_asset("myasset")
-    asset.upload(file_source)
+    asset.upload_file(file_source)
     assert asset.metadata() == {}
 
 
@@ -91,10 +104,10 @@ def test_rename_asset(grove: Grove, tmp_path):
     src.write_text("Call me Ishmael")
 
     asset = grove.create_asset("old-name")
-    asset.upload(src)
+    asset.upload_file(src)
     grove.rename_asset("old-name", "new-name")
     dst = tmp_path / "download_moby.txt"
-    grove.download("new-name", dst)
+    grove.download_file("new-name", dst)
     assert dst.read_text() == "Call me Ishmael"
 
 
@@ -112,7 +125,7 @@ def test_grove_validation(grove: Grove):
 
 def test_manifest_validation_is_recursive(grove: Grove, file_source):
     asset = grove.create_asset("myasset")
-    asset.upload(file_source)
+    asset.upload_file(file_source)
     Path(grove.root, "assets", "myasset", "manifest.json").write_text(
         '{"latest_version":"bad-version"}\n'
     )
@@ -122,7 +135,7 @@ def test_manifest_validation_is_recursive(grove: Grove, file_source):
 
 def test_log_shape(grove, file_source):
     asset = grove.create_asset("my-asset")
-    asset.upload(file_source)
+    asset.upload_file(file_source)
     log = grove.read_log()
     print(log)
     assert len(log) == 3
