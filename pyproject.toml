@@ -5,7 +5,9 @@ description = "ARB data management"
 readme = "README.md"
 authors = [{ name = "Scott Olesen", email = "ulp7@cdc.gov" }]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fsspec>=2026.7.0",
+]
 
 [project.scripts]
 arbor = "arbor:main"

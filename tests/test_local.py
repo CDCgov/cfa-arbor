@@ -1,21 +1,19 @@
-import re
-from pathlib import Path, PurePath
+import textwrap
+from pathlib import Path
 
+import fsspec
 import pytest
+from fsspec.implementations.local import LocalFileSystem
 
 from arbor import ArborError, Grove
-from arbor.backend import LocalBackend
 
 
 @pytest.fixture
-def backend(tmp_path) -> LocalBackend:
-    root = tmp_path / "grove"
-    return LocalBackend(root)
-
-
-@pytest.fixture
-def grove(backend) -> Grove:
-    return Grove(backend).setup()
+def grove(tmp_path) -> Grove:
+    fs = fsspec.filesystem("local")
+    grove = Grove(root=tmp_path / "grove", fs=fs)
+    grove.setup()
+    return grove
 
 
 @pytest.fixture
@@ -37,50 +35,33 @@ def dir_source(tmp_path) -> Path:
     return root
 
 
-def test_backend_string(backend):
-    assert re.match(r'LocalBackend\(".+"\)', repr(backend))
+def test_local_instantiate(grove):
+    grove
 
 
-def test_new_grove_is_unconnected(backend):
-    assert not Grove(backend).connected
+def test_second_connection(tmp_path):
+    root = tmp_path / "grove"
+    Grove(root=root, fs=fsspec.filesystem("local"))
+    Grove(root=root, fs=fsspec.filesystem("local"))
 
 
-def test_unconnected_cant_do_things(backend):
-    grove = Grove(backend)
-    with pytest.raises(ArborError, match="not connected"):
-        grove.list_assets()
+def test_list_data_one_file(grove: Grove, file_source):
+    asset = grove.create_asset("mybook")
+    asset.upload(file_source)
+    assert asset.list_data() == ["moby.txt"]
 
 
-def test_connected_cant_reconnect(backend):
-    grove = Grove(backend).connect()
-    with pytest.raises(ArborError, match="already connected"):
-        grove.connect()
+def test_list_versions(grove: Grove, file_source):
+    asset = grove.create_asset("mybook")
+    asset.upload(file_source)
+    asset.upload(file_source)
+    asset.upload(file_source)
+    versions = asset.list_versions()
+    assert len(versions) == 3
+    assert len(versions[0]) == 6
 
 
-def test_local_connection(grove):
-    assert grove.connected
-
-
-def test_second_connection(backend):
-    grove1 = Grove(backend)
-    grove2 = Grove(backend)
-    grove1.connect()
-    grove2.connect()
-
-
-def test_local_scan(dir_source):
-    backend = LocalBackend(dir_source)
-    assert backend.scan(PurePath(".")) == (["books"], ["readme.json"])
-    assert backend.scan(PurePath("books")) == ([], ["moby.txt"])
-
-    grove = Grove(backend)
-    assert grove._scan_recursive(PurePath(".")) == (
-        [PurePath("books")],
-        [PurePath("readme.json"), PurePath("books/moby.txt")],
-    )
-
-
-def test_lifecycle_file(grove, tmp_path):
+def test_lifecycle_file(grove: Grove, tmp_path):
     # can make an asset
     asset = grove.create_asset("myasset")
     assert grove.list_assets() == ["myasset"]
@@ -91,17 +72,15 @@ def test_lifecycle_file(grove, tmp_path):
 
     # can upload
     version = asset.upload(src)
-    assert asset.list_data() == [PurePath("moby.txt")]
+    assert asset.list_data() == ["moby.txt"]
 
     # this should be a file asset
     assert asset.mode() == "file"
 
     # can download
     destination = tmp_path / "moby_cache.txt"
-    assert asset.download(destination) == destination.resolve()
+    asset.download(destination)
     assert destination.read_text() == "Call me Ishmael"
-    with pytest.raises(ArborError, match="already exists"):
-        asset.download(destination)
 
     # if we upload again, new asset should be a different version
     src2 = src.rename(tmp_path / "moby2.txt")
@@ -109,7 +88,7 @@ def test_lifecycle_file(grove, tmp_path):
     assert second_version != version
 
 
-def test_upload_metadata(grove, file_source):
+def test_upload_metadata(grove: Grove, file_source):
     asset = grove.create_asset("myasset")
 
     metadata = {
@@ -132,14 +111,15 @@ def test_missing_version_metadata_defaults_to_empty(grove, file_source):
     assert asset.metadata() == {}
 
 
-def test_rename_asset(grove, tmp_path):
+def test_rename_asset(grove: Grove, tmp_path):
     src = tmp_path / "moby.txt"
     src.write_text("Call me Ishmael")
 
     asset = grove.create_asset("old-name")
     asset.upload(src)
     grove.rename_asset("old-name", "new-name")
-    dst = grove.download("new-name", tmp_path / "download_moby.txt")
+    dst = tmp_path / "download_moby.txt"
+    grove.download("new-name", dst)
     assert dst.read_text() == "Call me Ishmael"
 
 
@@ -149,20 +129,16 @@ def test_invalid_ids(grove, tmp_path):
             grove.create_asset(value)
 
 
-def test_grove_validation(grove):
-    root = grove.backend.path
-    assert isinstance(root, Path)
-    (root / "manifest.json").write_text('{"schema_version":9}\n')
+def test_grove_validation(grove: Grove):
+    Path(grove.root, "manifest.json").write_text('{"schema_version":9}\n')
     with pytest.raises(ArborError, match="schema"):
         grove.validate()
 
 
-def test_manifest_validation_is_recursive(grove, file_source):
+def test_manifest_validation_is_recursive(grove: Grove, file_source):
     asset = grove.create_asset("myasset")
     asset.upload(file_source)
-    root = grove.backend.path
-    assert isinstance(root, Path)
-    (root / "assets" / "myasset" / "manifest.json").write_text(
+    Path(grove.root, "assets", "myasset", "manifest.json").write_text(
         '{"latest_version":"bad-version"}\n'
     )
     with pytest.raises(ArborError, match="does not exist"):
@@ -187,11 +163,14 @@ def test_log_shape(grove, file_source):
 
 def test_from_config(tmp_path):
     config = tmp_path / "arbor.toml"
-    config.write_text('[backend]\ntype = "local"\npath = "my-grove"\n')
+    config.write_text(
+        textwrap.dedent("""
+    grove = "/path/to/my-grove"
+    [filesystem]
+    protocol = "local"
+    """)
+    )
 
     grove = Grove.from_config(config)
-
-    assert isinstance(grove, Grove)
-    backend = grove.backend
-    assert isinstance(backend, LocalBackend)
-    assert backend.path == (tmp_path / "my-grove").resolve()
+    assert isinstance(grove.fs, LocalFileSystem)
+    assert grove.root == Path("/", "path", "to", "my-grove")

@@ -6,63 +6,59 @@ import os
 import re
 import uuid
 from abc import ABC
-from pathlib import Path, PurePath
+from os import PathLike
+from pathlib import Path
 from typing import Any, Self
 
-import arbor.backend
+import fsspec
+from fsspec.implementations.dirfs import DirFileSystem
 
-from .types import ArborError, AssetID, AssetMode, VersionID
+import arbor.config
+from arbor.types import ArborError, AssetID, AssetMode, VersionID
 
 
 class Grove(ABC):
     schema_version = 1
 
-    def __init__(self, backend: arbor.backend.Backend):
-        self.backend = backend
-        self.connected = False
+    def __init__(self, root: Path, fs: fsspec.AbstractFileSystem):
+        self.root = root
+        self.fs = fs
+        self.dfs = DirFileSystem(path=root, fs=fs)
+
+    def _join(self, parts: list[str]) -> str:
+        return self.dfs.sep.join(parts)
 
     @classmethod
-    def from_config(cls, path: str | Path | None = None) -> Self:
-        return cls(arbor.backend.from_config(path))
-
-    def connect(self) -> Self:
-        if self.connected:
-            raise ArborError("already connected")
-
-        self.backend.connect()
-        self.connected = True
-        return self
+    def from_config(cls, path: PathLike | None = None) -> Self:
+        root, fs = arbor.config.from_config(path)
+        return cls(root=root, fs=fs)
 
     def setup(self) -> Self:
-        if self.connected:
-            raise ArborError("already connected")
-
-        path = PurePath(".")
-        if self.backend.exists(path):
-            raise ArborError("backend destination exists")
+        if self.dfs.exists(""):
+            raise ArborError("grove root exists")
 
         try:
-            self.backend.mkdir(path)
+            self.dfs.mkdir("")
             manifest = {"schema_version": self.schema_version}
-            self.backend.write_text(json.dumps(manifest) + "\n", path / "manifest.json")
-            self.backend.mkdir(path / "assets")
-            self.backend.touch(path / "log.jsonl")
+            self._write_json(path="manifest.json", value=manifest)
+            self.dfs.mkdir("assets")
+            self.dfs.touch("log.jsonl")
             self._log_event({"event": "create_grove"})
-            return self.connect()
+            return self
         except BaseException:
-            self.backend.rm(path)
+            self.dfs.rm("", recursive=True)
             raise
 
-    def _require_connected(self):
-        if not self.connected:
-            raise ArborError("grove not connected; call .connect()")
+    def _read_json(self, path: str) -> Any:
+        return json.loads(self.dfs.read_text(path, encoding="utf-8"))
+
+    def _write_json(self, path: str, value):
+        self.dfs.write_text(path=path, value=json.dumps(value) + "\n", encoding="utf-8")
 
     def validate(self) -> None:
         """Recursively validate the grove"""
-        self._require_connected()
         # read the grove-level manifest
-        path = PurePath("manifest.json")
-        manifest = json.loads(self.backend.read_text(path))
+        manifest = self._read_json("manifest.json")
         if not manifest["schema_version"] == self.schema_version:
             raise ArborError("Grove schemas do not match")
 
@@ -71,28 +67,23 @@ class Grove(ABC):
             self.validate_asset(asset_id)
 
     def read_log(self) -> list[dict[str, Any]]:
-        self._require_connected()
-        path = PurePath("log.jsonl")
-        return _parse_jsonl(self.backend.read_text(path))
+        return _parse_jsonl(self.dfs.read_text("log.jsonl"))
 
     def list_assets(self) -> list[AssetID]:
-        self._require_connected()
-        dirs, _ = self.backend.scan(PurePath("assets"))
+        _, dirs, _ = next(self.dfs.walk("assets"))
         return dirs
 
     def create_asset(self, asset_id: AssetID) -> Asset:
-        self._require_connected()
         self._validate_id(asset_id)
-        asset_path = PurePath("assets", asset_id)
-        if self.backend.exists(asset_path):
+        asset_path = self._join(["assets", asset_id])
+        if self.dfs.exists(asset_path):
             raise ArborError(f"asset {asset_id} already exists")
 
-        self.backend.mkdir(asset_path)
+        self.dfs.mkdir(asset_path)
 
         manifest = dict()
-        manifest_path = asset_path / "manifest.json"
-        self.backend.write_text(json.dumps(manifest) + "\n", manifest_path)
-        self.backend.mkdir(asset_path / "versions")
+        self._write_json(path=self._join([asset_path, "manifest.json"]), value=manifest)
+        self.dfs.mkdir(self._join([asset_path, "versions"]))
         self._log_event({"event": "create_asset", "asset_id": asset_id})
 
         return Asset(grove=self, asset_id=asset_id)
@@ -106,12 +97,12 @@ class Grove(ABC):
         self._require_asset(asset_id)
         self._validate_id(new_id)
 
-        old_path = PurePath("assets", asset_id)
-        new_path = PurePath("assets", new_id)
-        if self.backend.exists(new_path):
+        old_path = self._join(["assets", asset_id])
+        new_path = self._join(["assets", new_id])
+        if self.dfs.exists(new_path):
             raise ArborError(f"asset {new_id} already exists")
 
-        self.backend.move(old_path, new_path)
+        self.dfs.mv(old_path, new_path)
         self._log_event(
             {"event": "rename_asset", "asset_id": asset_id, "new_id": new_id}
         )
@@ -119,14 +110,12 @@ class Grove(ABC):
         return self.asset(new_id)
 
     def _require_asset(self, asset_id: AssetID) -> None:
-        self._require_connected()
-        if not self.backend.exists(PurePath("assets", asset_id)):
+        if not self.dfs.exists(self._join(["assets", asset_id])):
             raise ArborError(f"asset {asset_id} does not exist")
 
     def _require_version(self, asset_id: AssetID, version: VersionID) -> None:
-        self._require_connected()
-        path = PurePath("assets", asset_id, "versions", version)
-        if not self.backend.exists(path):
+        path = self._join(["assets", asset_id, "versions", version])
+        if not self.dfs.exists(path):
             raise ArborError(f"version {asset_id}/{version} does not exist")
 
     def asset(self, asset_id: AssetID) -> Asset:
@@ -164,10 +153,10 @@ class Grove(ABC):
 
     def _read_manifest(self, asset_id: AssetID, version: VersionID) -> dict[str, Any]:
         self._require_version(asset_id, version)
-        manifest_path = PurePath(
-            "assets", asset_id, "versions", version, "manifest.json"
+        manifest_path = self._join(
+            ["assets", asset_id, "versions", version, "manifest.json"]
         )
-        manifest = json.loads(self.backend.read_text(manifest_path))
+        manifest = json.loads(self.dfs.read_text(manifest_path))
 
         keys = set(manifest.keys())
         if not keys == {"mode", "metadata"}:
@@ -186,42 +175,27 @@ class Grove(ABC):
         self._require_version(asset_id, version)
         return version
 
-    def list_data(self, asset_id: AssetID, version: VersionID | None) -> list[PurePath]:
+    def list_data(self, asset_id: AssetID, version: VersionID | None) -> list[str]:
         version = self._resolve_version(asset_id, version)
-        dirs, files = self._scan_recursive(
-            PurePath("assets", asset_id, "versions", version, "data")
-        )
-        return dirs + files
+        data_path = self._join(["assets", asset_id, "versions", version, "data"])
+        paths = [fn for _, _, fns in self.dfs.walk(data_path) for fn in fns]
 
-    def _scan_recursive(
-        self, path: PurePath, root: PurePath | None = None
-    ) -> tuple[list[PurePath], list[PurePath]]:
-        if root is None:
-            root = path
+        if not len(paths) == 1:
+            raise NotImplementedError("only single-file assets are supported")
 
-        dirs, files = self.backend.scan(path)
-        dirs = [path / dir for dir in dirs]
-        files = [path / file for file in files]
-
-        for dir in dirs:
-            subdirs, subfiles = self._scan_recursive(path / dir, root=root)
-            dirs += subdirs
-            files += subfiles
-
-        return (
-            [dir.relative_to(root) for dir in dirs],
-            [file.relative_to(root) for file in files],
-        )
+        return paths
 
     def list_versions(self, asset_id: AssetID) -> list[VersionID]:
         self._require_asset(asset_id)
-        dirs, _ = self.backend.scan(PurePath("assets", asset_id, "versions"))
-        return dirs
+        _, dir_names, _ = next(
+            self.dfs.walk(self._join(["assets", asset_id, "versions"]))
+        )
+        return dir_names
 
     def latest_version(self, asset_id: AssetID) -> VersionID | None:
         self._require_asset(asset_id)
-        manifest_path = PurePath("assets", asset_id, "manifest.json")
-        manifest = json.loads(self.backend.read_text(manifest_path))
+        manifest_path = self._join(["assets", asset_id, "manifest.json"])
+        manifest = self._read_json(manifest_path)
         return manifest["latest_version"]
 
     def _latest_version_required(self, asset_id: AssetID) -> VersionID:
@@ -234,7 +208,7 @@ class Grove(ABC):
     def upload(
         self,
         asset_id: AssetID,
-        source: os.PathLike[str],
+        source: PathLike,
         metadata: dict[str, Any] | None = None,
     ) -> VersionID:
         self._require_asset(asset_id)
@@ -251,43 +225,34 @@ class Grove(ABC):
         # determine new mode
         if source.exists() and source.is_file():
             mode = "file"
+            recursive = False
         elif source.exists() and source.is_dir():
             mode = "dir"
+            raise NotImplementedError("directory upload not implemented")
         else:
             raise ArborError(f"cannot upload {source}")
 
         # set up paths
-        asset_path = PurePath("assets", asset_id)
-        asset_manifest_path = asset_path / "manifest.json"
-        version_path = asset_path / "versions" / version
-        version_manifest_path = version_path / "manifest.json"
-        data_path = version_path / "data"
+        asset_path = self._join(["assets", asset_id])
+        asset_manifest_path = self._join([asset_path, "manifest.json"])
+        version_path = self._join([asset_path, "versions", version])
+        version_manifest_path = self._join([version_path, "manifest.json"])
+        data_path = self._join([version_path, "data"])
 
         # set up manifest contents
         asset_manifest = {"latest_version": version}
         version_manifest = {"mode": mode, "metadata": metadata}
 
         try:
-            self.backend.mkdir(version_path)
-            self.backend.mkdir(data_path)
+            self.dfs.mkdir(version_path)
+            self.dfs.mkdir(data_path)
+            self.dfs.put(source, data_path, recursive=recursive)
 
-            if mode == "file":
-                self.backend.upload_file(source, data_path / source.name)
-            elif mode == "dir":
-                raise NotImplementedError("Directory uploads not yet supported")
-            else:
-                raise RuntimeError(f"invalid mode {mode}")
-
-            self.backend.write_text(
-                json.dumps(asset_manifest) + "\n", asset_manifest_path
-            )
-            self.backend.write_text(
-                json.dumps(version_manifest) + "\n", version_manifest_path
-            )
-
+            self._write_json(path=asset_manifest_path, value=asset_manifest)
+            self._write_json(path=version_manifest_path, value=version_manifest)
             self._log_event({"event": "upload", "asset": asset_id, "version": version})
         except BaseException:
-            self.backend.rm(version_path)
+            self.dfs.rm(version_path, recursive=True)
             raise
 
         return version
@@ -308,7 +273,9 @@ class Grove(ABC):
         )
         event |= {"time": time}
         line = json.dumps(event) + "\n"
-        self.backend.append(line, PurePath("log.jsonl"))
+
+        with self.dfs.open("log.jsonl", "ab") as f:
+            f.write(line.encode())
 
     def asset_mode(
         self,
@@ -318,10 +285,11 @@ class Grove(ABC):
         self._require_asset(asset_id)
         version = self._resolve_version(asset_id, version)
 
-        manifest_path = PurePath(
-            "assets", asset_id, "versions", version, "manifest.json"
+        manifest_path = self._join(
+            ["assets", asset_id, "versions", version, "manifest.json"]
         )
-        manifest = json.loads(self.backend.read_text(manifest_path))
+
+        manifest = json.loads(self.dfs.read_text(manifest_path))
         return manifest["mode"]
 
     def download(
@@ -329,7 +297,7 @@ class Grove(ABC):
         asset_id: AssetID,
         dest: os.PathLike[str],
         version: VersionID | None = None,
-    ) -> Path:
+    ) -> None:
         mode = self.asset_mode(asset_id, version)
         dest = Path(dest)
 
@@ -343,24 +311,18 @@ class Grove(ABC):
                     f"Asset {asset_id}/{version} is file mode but has more than 1 file"
                 )
 
-            source = PurePath("assets", asset_id, "versions", version, "data", data[0])
-
-            if not dest.exists():
-                # download a file to the specified file destination
-                self.backend.download_file(source, dest)
-                return dest
-            elif dest.exists() and dest.is_dir():
-                dest_fp = dest / data[0]
-                self.backend.download_file(source, dest_fp)
-                return dest_fp
-            elif dest.exists() and not dest.is_dir():
-                raise ArborError(f"destination {dest} already exists")
-            else:
-                raise RuntimeError()
+            source = self._join(
+                ["assets", asset_id, "versions", version, "data", data[0]]
+            )
+            recursive = False
         elif mode == "dir":
-            raise NotImplementedError("Directory downloads not yet supported")
+            source = self._join(["assets", asset_id, "versions", version, "data"])
+            recursive = True
+            raise NotImplementedError("directory downloads not implemented")
         else:
-            raise RuntimeError(f"invalid mode {mode}")
+            raise ValueError(f"Invalid mode {mode}")
+
+        self.dfs.get(source, str(dest), recursive=recursive)
 
 
 class Asset:
@@ -379,7 +341,7 @@ class Asset:
     def list_versions(self) -> list[VersionID]:
         return self.grove.list_versions(asset_id=self.asset_id)
 
-    def list_data(self, version: VersionID | None = None) -> list[PurePath]:
+    def list_data(self, version: VersionID | None = None) -> list[str]:
         return self.grove.list_data(self.asset_id, version)
 
     def latest_version(self) -> VersionID | None:
@@ -400,8 +362,8 @@ class Asset:
 
     def download(
         self, dest: os.PathLike[str], version: VersionID | None = None
-    ) -> Path:
-        return self.grove.download(asset_id=self.asset_id, dest=dest, version=version)
+    ) -> None:
+        self.grove.download(asset_id=self.asset_id, dest=dest, version=version)
 
 
 def _parse_jsonl(x: str) -> list[Any]:

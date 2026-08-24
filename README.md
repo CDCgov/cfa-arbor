@@ -38,19 +38,22 @@ If so, arbor could probably be replaced.)
 
 Git-like data management, like [lakeFS](https://lakefs.io/), is another approach.
 
-## A nominal walkthrough of functionality
+## Overview
 
-The grove front-end model is independent of the backend, so configuring arbor is about configuring the backend.
+The grove front-end model is independent of the filesystem backend.
+Configuring arbor is about configuring the backend.
 You can use a per-project `arbor.toml` like:
 
 ```toml
-[backend]
-type = "local"
-path = "/path/to/my-grove"
+grove = "/path/to/my-grove"
+
+[filesystem]
+protocol = "local"
 ```
 
-arbor can be called with an explicit config path.
-If `Arbor.from_config()` is called with a config path, it searches for the environmental variable `ARBOR_CONFIG` and then searches for an `arbor.toml`.
+arbor can be called with an explicit config path using `Grove.from_config("/path/to/arbor.toml")`.
+If `Grove.from_config()` is called, without an explicit path, arbor uses the config path in the environmental variable `ARBOR_CONFIG`.
+If that variable is not present, arbor searches for an `arbor.toml` in the current directory, then upward across directories.
 
 This configuration lets you skip instantiating backend objects manually:
 
@@ -61,10 +64,9 @@ grove = Grove.from_config()
 
 # you can set up a new backend storage environment
 grove.setup()
-# connect to existing storage with `grove.connect()`
 
 # See what assets are in a grove
-grove.list_asset_ids()
+grove.list_assets()
 
 # Pick out an asset
 asset = grove.asset("friction-surface")
@@ -76,7 +78,7 @@ asset.download("/download/to/local/path/")
 asset.upload("/upload/from/local/path/")
 
 # Rename an asset
-asset.rename("daily-case-counts")`
+asset.rename("motorized-friction-surface")
 ```
 
 ## Command-line configuration
@@ -102,7 +104,7 @@ arbor asset ASSET download DEST [--version VERSION]
 arbor asset ASSET validate [--version VERSION]
 ```
 
-## Backend file structure
+## File structure
 
 The backend file structure is meant to be transparent to a human:
 
@@ -124,6 +126,7 @@ grove-root
 
 Some useful behavior is deferred:
 
+- uploads/downloads for multiple files
 - remote storage backends such as Azure Blob
 - concurrency control
 - destroying and amending versions
