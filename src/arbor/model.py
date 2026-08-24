@@ -20,7 +20,7 @@ from arbor.types import ArborError, AssetID, AssetMode, VersionID
 class Grove(ABC):
     schema_version = 1
 
-    def __init__(self, root: Path, fs: fsspec.AbstractFileSystem):
+    def __init__(self, root: str, fs: fsspec.AbstractFileSystem):
         self.root = root
         self.fs = fs
         self.dfs = DirFileSystem(path=root, fs=fs)
@@ -274,8 +274,9 @@ class Grove(ABC):
         event |= {"time": time}
         line = json.dumps(event) + "\n"
 
-        with self.dfs.open("log.jsonl", "ab") as f:
-            f.write(line.encode())
+        path = "log.jsonl"
+        log = self.dfs.read_text(path) + line
+        self.dfs.write_text(path=path, value=log)
 
     def asset_mode(
         self,

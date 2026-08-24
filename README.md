@@ -122,6 +122,18 @@ grove-root
             data-file1.txt
 ```
 
+## Azure Blob support
+
+Ensure that the optional dependencies are installed.
+
+```toml
+grove = "path/to/grove-root"
+
+[filesystem]
+protocol = "abfs"
+account_name = "my-storage-account-name"
+```
+
 ## Future functionality
 
 Some useful behavior is deferred:
