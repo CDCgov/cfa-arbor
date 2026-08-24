@@ -72,19 +72,16 @@ grove.list_assets()
 asset = grove.asset("friction-surface")
 
 # Download a file asset or directory asset locally
-asset.download_file("/download/to/local/file")
+asset.download_file("/download/to/local/file.ext")
 asset.download_dir("/download/to/local/directory")
 
 # Upload a file asset or the contents of a directory asset
-asset.upload_file("/upload/from/local/file")
+asset.upload_file("/upload/from/local/file.ext")
 asset.upload_dir("/upload/from/local/directory")
 
 # Rename an asset
 asset.rename("motorized-friction-surface")
 ```
-
-Directory transfers omit the source directory wrapper and empty directories.
-Downloads reject existing output files; file downloads do not create directories.
 
 ## Command-line configuration
 
