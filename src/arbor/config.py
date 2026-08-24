@@ -8,15 +8,19 @@ import fsspec
 from arbor.types import ArborError
 
 
-def from_config(path: PathLike | None = None) -> tuple[Path, fsspec.AbstractFileSystem]:
+def from_config(path: PathLike | None = None) -> tuple[str, fsspec.AbstractFileSystem]:
+    """
+    Args:
+        path: path to config. If `None`, then search for the config using
+            environmental variable and then by looking for an `arbor.toml`.
+
+    Returns:
+        grove root path and file system
+    """
     config_path = _resolve_config_path(path)
     config = _load_config(config_path)
 
-    grove = Path(config["grove"])
-    if not grove.is_absolute():
-        grove = config_path.parent / grove
-
-    return grove.resolve(), fsspec.filesystem(**config["filesystem"])
+    return config["grove"], fsspec.filesystem(**config["filesystem"])
 
 
 def _load_config(path: Path) -> dict:

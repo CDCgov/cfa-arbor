@@ -12,6 +12,7 @@ from typing import Any, Self
 
 import fsspec
 from fsspec.implementations.dirfs import DirFileSystem
+from fsspec.implementations.local import LocalFileSystem
 
 import arbor.config
 from arbor.types import ArborError, AssetID, AssetMode, VersionID
@@ -20,7 +21,7 @@ from arbor.types import ArborError, AssetID, AssetMode, VersionID
 class Grove(ABC):
     schema_version = 1
 
-    def __init__(self, root: Path, fs: fsspec.AbstractFileSystem):
+    def __init__(self, root: str, fs: fsspec.AbstractFileSystem):
         self.root = root
         self.fs = fs
         self.dfs = DirFileSystem(path=root, fs=fs)
@@ -94,6 +95,11 @@ class Grove(ABC):
             raise ArborError(f"Invalid ID {x}")
 
     def rename_asset(self, asset_id: AssetID, new_id: AssetID) -> Asset:
+        if not isinstance(self.fs, LocalFileSystem):
+            raise NotImplementedError(
+                "asset renaming only supported for local filesystem"
+            )
+
         self._require_asset(asset_id)
         self._validate_id(new_id)
 
@@ -274,8 +280,9 @@ class Grove(ABC):
         event |= {"time": time}
         line = json.dumps(event) + "\n"
 
-        with self.dfs.open("log.jsonl", "ab") as f:
-            f.write(line.encode())
+        path = "log.jsonl"
+        log = self.dfs.read_text(path) + line
+        self.dfs.write_text(path=path, value=log)
 
     def asset_mode(
         self,

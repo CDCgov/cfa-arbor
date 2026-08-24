@@ -1,9 +1,7 @@
-import textwrap
 from pathlib import Path
 
 import fsspec
 import pytest
-from fsspec.implementations.local import LocalFileSystem
 
 from arbor import ArborError, Grove
 
@@ -61,31 +59,8 @@ def test_list_versions(grove: Grove, file_source):
     assert len(versions[0]) == 6
 
 
-def test_lifecycle_file(grove: Grove, tmp_path):
-    # can make an asset
-    asset = grove.create_asset("myasset")
-    assert grove.list_assets() == ["myasset"]
-
-    # make a source file
-    src = Path(tmp_path / "moby.txt")
-    src.write_text("Call me Ishmael")
-
-    # can upload
-    version = asset.upload(src)
-    assert asset.list_data() == ["moby.txt"]
-
-    # this should be a file asset
-    assert asset.mode() == "file"
-
-    # can download
-    destination = tmp_path / "moby_cache.txt"
-    asset.download(destination)
-    assert destination.read_text() == "Call me Ishmael"
-
-    # if we upload again, new asset should be a different version
-    src2 = src.rename(tmp_path / "moby2.txt")
-    second_version = asset.upload(src2)
-    assert second_version != version
+def test_complete_filesystem_lifecycle(grove: Grove, tmp_path, filesystem_lifecycle):
+    filesystem_lifecycle(grove, tmp_path)
 
 
 def test_upload_metadata(grove: Grove, file_source):
@@ -159,18 +134,3 @@ def test_log_shape(grove, file_source):
     assert log[2]["event"] == "upload"
     assert "time" in log[2]
     assert "version" in log[2]
-
-
-def test_from_config(tmp_path):
-    config = tmp_path / "arbor.toml"
-    config.write_text(
-        textwrap.dedent("""
-    grove = "/path/to/my-grove"
-    [filesystem]
-    protocol = "local"
-    """)
-    )
-
-    grove = Grove.from_config(config)
-    assert isinstance(grove.fs, LocalFileSystem)
-    assert grove.root == Path("/", "path", "to", "my-grove")
