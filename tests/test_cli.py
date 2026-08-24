@@ -41,6 +41,16 @@ def test_asset_commands(tmp_path: Path, config: Path, capsys):
     assert my_run(["setup"]) == 0
     assert my_run(["create", "my-asset"]) == 0
 
+    assert my_run(["asset", "my-asset", "list-versions"]) == 0
+    assert my_run(["asset", "my-asset", "latest-version"]) == 0
+    assert my_run(["asset", "my-asset", "validate"]) == 0
+    assert capsys.readouterr().out == ""
+
+    assert my_run(["asset", "my-asset", "list-data"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "arbor: my-asset has no versions\n"
+
     source = tmp_path / "data.csv"
     source.write_text("x\n1\n")
     metadata = {"source": "cli", "rows": 1}

@@ -33,6 +33,9 @@ def filesystem_lifecycle():
     """Return an assertion covering the filesystem operations Arbor requires."""
 
     def assert_complete(grove: Grove, tmp_path: Path) -> None:
+        assert grove.list_assets() == []
+        grove.validate()
+
         file_source = tmp_path / "moby.txt"
         file_source.write_text("Call me Ishmael")
 
@@ -43,6 +46,16 @@ def filesystem_lifecycle():
         (dir_source / "books" / "moby.txt").write_text("Call me Ishmael")
 
         asset = grove.create_asset("myasset")
+        assert asset.list_versions() == []
+        assert asset.latest_version() is None
+        asset.validate()
+        with pytest.raises(ArborError, match="has no versions"):
+            asset.list_data()
+        with pytest.raises(ArborError, match="has no versions"):
+            asset.mode()
+        with pytest.raises(ArborError, match="has no versions"):
+            asset.metadata()
+
         first_version = asset.upload_file(file_source, metadata={"author": "Melville"})
 
         assert grove.list_assets() == ["myasset"]

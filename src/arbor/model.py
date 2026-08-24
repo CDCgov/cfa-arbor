@@ -71,7 +71,8 @@ class Grove(ABC):
         return _parse_jsonl(self.dfs.read_text("log.jsonl"))
 
     def list_assets(self) -> list[AssetID]:
-        _, dirs, _ = next(self.dfs.walk("assets"))
+        # if assets/ is empty, walk() yields StopIteration; need a backstop
+        _, dirs, _ = next(self.dfs.walk("assets"), ("assets", [], []))
         return dirs
 
     def create_asset(self, asset_id: AssetID) -> Asset:
@@ -82,7 +83,7 @@ class Grove(ABC):
 
         self.dfs.mkdir(asset_path)
 
-        manifest = dict()
+        manifest = {"latest_version": None}
         self._write_json(path=self._join([asset_path, "manifest.json"]), value=manifest)
         self.dfs.mkdir(self._join([asset_path, "versions"]))
         self._log_event({"event": "create_asset", "asset_id": asset_id})
@@ -197,7 +198,8 @@ class Grove(ABC):
     def list_versions(self, asset_id: AssetID) -> list[VersionID]:
         self._require_asset(asset_id)
         _, dir_names, _ = next(
-            self.dfs.walk(self._join(["assets", asset_id, "versions"]))
+            self.dfs.walk(self._join(["assets", asset_id, "versions"])),
+            ("versions", [], []),
         )
         return dir_names
 
@@ -212,7 +214,7 @@ class Grove(ABC):
         if v is not None:
             return v
         else:
-            raise ArborError(f"{asset_id} has no latest version")
+            raise ArborError(f"{asset_id} has no versions")
 
     def _upload(
         self,
@@ -255,9 +257,9 @@ class Grove(ABC):
                 self.dfs.makedirs(parent, exist_ok=True)
                 self.dfs.put_file(str(source), destination)
 
-            self._write_json(path=asset_manifest_path, value=asset_manifest)
             self._write_json(path=version_manifest_path, value=version_manifest)
             self._log_event({"event": "upload", "asset": asset_id, "version": version})
+            self._write_json(path=asset_manifest_path, value=asset_manifest)
         except BaseException:
             self.dfs.rm(version_path, recursive=True)
             raise
