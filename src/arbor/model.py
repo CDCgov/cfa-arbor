@@ -12,6 +12,7 @@ from typing import Any, Self
 
 import fsspec
 from fsspec.implementations.dirfs import DirFileSystem
+from fsspec.implementations.local import LocalFileSystem
 
 import arbor.config
 from arbor.types import ArborError, AssetID, AssetMode, VersionID
@@ -94,6 +95,11 @@ class Grove(ABC):
             raise ArborError(f"Invalid ID {x}")
 
     def rename_asset(self, asset_id: AssetID, new_id: AssetID) -> Asset:
+        if not isinstance(self.fs, LocalFileSystem):
+            raise NotImplementedError(
+                "asset renaming only supported for local filesystem"
+            )
+
         self._require_asset(asset_id)
         self._validate_id(new_id)
 

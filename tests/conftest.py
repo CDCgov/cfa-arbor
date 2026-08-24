@@ -52,18 +52,8 @@ def filesystem_lifecycle():
         assert second_version != first_version
         assert set(asset.list_versions()) == {first_version, second_version}
 
-        renamed = grove.rename_asset("myasset", "renamed")
-        assert grove.list_assets() == ["renamed"]
-        assert renamed.latest_version() == second_version
-
         events = [entry["event"] for entry in grove.read_log()]
-        assert events == [
-            "create_grove",
-            "create_asset",
-            "upload",
-            "upload",
-            "rename_asset",
-        ]
+        assert events == ["create_grove", "create_asset", "upload", "upload"]
 
         grove.validate()
 
