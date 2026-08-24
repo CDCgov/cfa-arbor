@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from arbor.model import Asset, Grove
-from arbor.types import ArborError, VersionID
+from arbor.types import ArborError
 
 Command = Callable[[argparse.Namespace], None]
 
@@ -140,16 +140,6 @@ def _asset(args: argparse.Namespace) -> Asset:
     return _grove(args).asset(args.asset)
 
 
-def _selected_version(asset: Asset, version: VersionID | None) -> VersionID:
-    if version is not None:
-        return version
-    else:
-        latest = asset.latest_version()
-        if latest is None:
-            raise ArborError(f"{asset.asset_id} has no latest version")
-        return latest
-
-
 def _status(args: argparse.Namespace) -> None:
     grove = _grove(args)
     status = {"grove": str(grove.root), "filesystem": grove.fs.to_dict()}
@@ -221,8 +211,10 @@ def _download_dir(args: argparse.Namespace) -> None:
 
 def _validate_asset(args: argparse.Namespace) -> None:
     asset = _asset(args)
-    version = _selected_version(asset, args.version)
-    asset.grove.validate_version(asset.asset_id, version)
+    if args.version is None:
+        asset.validate()
+    else:
+        asset.grove.validate_version(asset.asset_id, args.version)
 
 
 def _print_lines(lines: Iterable[object]) -> None:
