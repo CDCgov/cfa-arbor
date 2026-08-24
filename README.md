@@ -123,7 +123,9 @@ grove-root
         version-id1/
           manifest.json  # including asset metadata
           data/
-            data-file1.txt
+            my-top-level-file.ext
+            my-data-dir/
+              my-nested-file.ext
 ```
 
 ## Azure Blob support
