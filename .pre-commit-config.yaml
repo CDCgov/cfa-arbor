@@ -11,7 +11,7 @@ repos:
       - id: trailing-whitespace
   # Markdown and Quarto
   - repo: https://github.com/jolars/panache-pre-commit
-    rev: v3.3.0
+    rev: v3.6.1
     hooks:
       - id: panache-format
       - id: panache-lint
@@ -24,7 +24,7 @@ repos:
         exclude: package.lock.json
   # Python
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.3
+    rev: v0.16.4
     hooks:
       # Run the linter
       - id: ruff-check
