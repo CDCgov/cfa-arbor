@@ -48,14 +48,18 @@ def _parser() -> argparse.ArgumentParser:
     rename = _command(asset_commands, "rename", _rename_asset, "rename the asset")
     rename.add_argument("new_id", metavar="NEW-ID")
 
-    upload = _command(asset_commands, "upload", _upload, "upload a new asset version")
-    upload.add_argument("source", type=Path, metavar="SOURCE")
-    upload.add_argument(
-        "--metadata",
-        type=_metadata_json,
-        metavar="METADATA",
-        help="JSON object to store as asset version metadata",
-    )
+    for name, command in (
+        ("upload-file", _upload_file),
+        ("upload-dir", _upload_dir),
+    ):
+        upload = _command(asset_commands, name, command, "upload a new asset version")
+        upload.add_argument("source", type=Path, metavar="SOURCE")
+        upload.add_argument(
+            "--metadata",
+            type=_metadata_json,
+            metavar="METADATA",
+            help="JSON object to store as asset version metadata",
+        )
 
     _command(
         asset_commands,
@@ -81,9 +85,13 @@ def _parser() -> argparse.ArgumentParser:
     metadata = _command(asset_commands, "metadata", _metadata, "print asset metadata")
     _add_version_option(metadata)
 
-    download = _command(asset_commands, "download", _download, "download an asset")
-    download.add_argument("dest", type=Path, metavar="DEST")
-    _add_version_option(download)
+    for name, command in (
+        ("download-file", _download_file),
+        ("download-dir", _download_dir),
+    ):
+        download = _command(asset_commands, name, command, "download an asset")
+        download.add_argument("dest", type=Path, metavar="DEST")
+        _add_version_option(download)
 
     validate = _command(
         asset_commands, "validate", _validate_asset, "validate asset data"
@@ -173,8 +181,12 @@ def _rename_asset(args: argparse.Namespace) -> None:
     _asset(args).rename(args.new_id)
 
 
-def _upload(args: argparse.Namespace) -> None:
-    print(_asset(args).upload(args.source, metadata=args.metadata))
+def _upload_file(args: argparse.Namespace) -> None:
+    print(_asset(args).upload_file(args.source, metadata=args.metadata))
+
+
+def _upload_dir(args: argparse.Namespace) -> None:
+    print(_asset(args).upload_dir(args.source, metadata=args.metadata))
 
 
 def _list_versions(args: argparse.Namespace) -> None:
@@ -199,8 +211,12 @@ def _metadata(args: argparse.Namespace) -> None:
     print(json.dumps(_asset(args).metadata(version=args.version)))
 
 
-def _download(args: argparse.Namespace) -> None:
-    _asset(args).download(args.dest, version=args.version)
+def _download_file(args: argparse.Namespace) -> None:
+    _asset(args).download_file(args.dest, version=args.version)
+
+
+def _download_dir(args: argparse.Namespace) -> None:
+    _asset(args).download_dir(args.dest, version=args.version)
 
 
 def _validate_asset(args: argparse.Namespace) -> None:

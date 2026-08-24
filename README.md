@@ -71,11 +71,13 @@ grove.list_assets()
 # Pick out an asset
 asset = grove.asset("friction-surface")
 
-# Download the latest version of the asset locally
-asset.download("/download/to/local/path/")
+# Download a file asset or directory asset locally
+asset.download_file("/download/to/local/file.ext")
+asset.download_dir("/download/to/local/directory")
 
-# Upload a new version of an asset
-asset.upload("/upload/from/local/path/")
+# Upload a file asset or the contents of a directory asset
+asset.upload_file("/upload/from/local/file.ext")
+asset.upload_dir("/upload/from/local/directory")
 
 # Rename an asset
 asset.rename("motorized-friction-surface")
@@ -94,13 +96,15 @@ arbor list-assets
 arbor create ASSET
 
 arbor asset ASSET rename NEW-ID
-arbor asset ASSET upload SOURCE [--metadata METADATA]
+arbor asset ASSET upload-file SOURCE [--metadata METADATA]
+arbor asset ASSET upload-dir SOURCE [--metadata METADATA]
 arbor asset ASSET list-versions
 arbor asset ASSET latest-version
 arbor asset ASSET list-data [--version VERSION]
 arbor asset ASSET metadata [--version VERSION]
 arbor asset ASSET mode [--version VERSION]
-arbor asset ASSET download DEST [--version VERSION]
+arbor asset ASSET download-file DEST [--version VERSION]
+arbor asset ASSET download-dir DEST [--version VERSION]
 arbor asset ASSET validate [--version VERSION]
 ```
 
@@ -119,7 +123,9 @@ grove-root
         version-id1/
           manifest.json  # including asset metadata
           data/
-            data-file1.txt
+            my-top-level-file.ext
+            my-data-dir/
+              my-nested-file.ext
 ```
 
 ## Azure Blob support
@@ -146,10 +152,11 @@ uv run --extra azure pytest tests/test_azure.py --run-azure-e2e
 
 Some useful behavior is deferred:
 
-- uploads/downloads for multiple files
 - concurrency control
 - destroying and amending versions
 - download overwrite
+- symlinks
+- file/directory and case-folding conflict detection
 - loading a revision directly into memory, especially when it contains multiple files
 
 ## Admins
