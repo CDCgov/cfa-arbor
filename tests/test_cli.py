@@ -1,23 +1,7 @@
 import json
 from pathlib import Path
 
-import pytest
-
 from arbor.cli import run
-
-
-@pytest.fixture
-def config(tmp_path: Path) -> Path:
-    config_dir = tmp_path / "arbor-toml-dir"
-    config_dir.mkdir()
-    config_path = config_dir / "arbor.toml"
-
-    grove_path = tmp_path / "grove"
-    config_path.write_text(
-        f'grove="{grove_path!s}"\n[filesystem]\nprotocol = "local"\n'
-    )
-
-    return config_path.resolve()
 
 
 def test_lifecycle(config: Path, capsys):
@@ -127,36 +111,3 @@ def test_asset_commands(tmp_path: Path, config: Path, capsys):
 
     assert my_run(["log"]) == 0
     assert '"event": "upload"' in capsys.readouterr().out
-
-
-def test_find_config_local(config: Path, monkeypatch):
-    """Can find a config in the current directory"""
-    monkeypatch.chdir(config.parent)
-    assert run(["status"]) == 0
-
-
-def test_find_config_up(config: Path, monkeypatch, capsys):
-    """Can find arbor.toml by searching upwards"""
-    work_dir = config.parent / "subdir" / "subsubdir"
-    work_dir.mkdir(parents=True)
-    monkeypatch.chdir(work_dir)
-
-    assert run(["status"]) == 0
-    assert "LocalFileSystem" in capsys.readouterr().out
-
-
-def test_find_config_env_var(tmp_path: Path, config: Path, monkeypatch, capsys):
-    # move to an arbitrary work location
-    work_dir = tmp_path / "find-config-dir"
-    work_dir.mkdir()
-    monkeypatch.chdir(work_dir)
-
-    # can't find config if it's not in the local tree
-    assert run(["status"]) == 2
-    assert "could not find arbor.toml" in capsys.readouterr().err
-
-    # can find it if we set an env var
-    monkeypatch.setenv("ARBOR_CONFIG", str(config))
-
-    assert run(["status"]) == 0
-    assert "LocalFileSystem" in capsys.readouterr().out
