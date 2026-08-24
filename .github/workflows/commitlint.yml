@@ -1,5 +1,8 @@
 name: Lint Commit Messages
-on: [pull_request]
+
+on:
+  push:
+    branches: [main]
 
 jobs:
   commitlint:
@@ -7,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetch all history so gitlint can check PR commits
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -18,4 +21,4 @@ jobs:
         run: pip install gitlint
 
       - name: Lint commits
-        run: gitlint --commits origin/${{ github.base_ref }}..HEAD
+        run: gitlint --commits ${{ github.event.before }}..${{ github.sha }}
